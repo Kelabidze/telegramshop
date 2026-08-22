@@ -1,0 +1,59 @@
+# Caddy configuration for the Telegram Mini App shop.
+#
+# Caddy obtains and renews a Let's Encrypt certificate automatically, which is
+# what Telegram requires: Mini Apps only open over HTTPS with a valid cert.
+#
+# Install to /etc/caddy/Caddyfile and replace shop.example.com with your domain.
+
+shop.example.com {
+	encode zstd gzip
+
+	# --- API + bot webhook ---------------------------------------------------
+	# Everything the backend owns is proxied to the Node process on localhost.
+	# The API is never exposed directly to the internet.
+	@backend path /api/* /health /telegram/*
+	handle @backend {
+		reverse_proxy 127.0.0.1:8080 {
+			# Preserve the real client IP so the API's rate limiter works.
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# --- Mini App static files -----------------------------------------------
+	handle {
+		root * /srv/shop/current/apps/miniapp/dist
+		try_files {path} /index.html
+		file_server
+
+		# Hashed asset filenames can be cached forever.
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+		# index.html must never be cached, or users get a stale app shell that
+		# references deleted asset files after a deploy.
+		@html path / /index.html
+		header @html Cache-Control "no-cache, must-revalidate"
+	}
+
+	# --- security headers ----------------------------------------------------
+	header {
+		# Telegram embeds the Mini App in a WebView/iframe, so framing must NOT
+		# be denied (no X-Frame-Options: DENY). Framing is restricted to
+		# Telegram origins via frame-ancestors instead.
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org tg://; base-uri 'none'; object-src 'none'"
+
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+		# Do not advertise the server software.
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/shop.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

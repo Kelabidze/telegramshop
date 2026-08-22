@@ -1,0 +1,31 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+
+# Prisma / SQLite local database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+apps/api/prisma/dev.db*
+apps/api/prisma/migrations/dev/
+
+# generated Prisma client
+apps/api/src/generated/
+
+# editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# build caches
+.tsbuildinfo
+*.tsbuildinfo
+.vite/

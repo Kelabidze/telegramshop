@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      `viewport-fit=cover` plus `user-scalable=no` prevents the zoom-on-input
+      and rubber-band scrolling that make a Mini App feel non-native.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Магазин</title>
+    <!--
+      The Telegram WebApp script must load before the app so `window.Telegram`
+      exists on first render. It is intentionally NOT bundled: Telegram serves
+      the version matching the client.
+    -->
+    <script src="https://telegram.org/js/telegram-web-app.js?58"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,81 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Allows a manual redeploy from the Actions tab without a new commit.
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight deploy, but never cancels one midway
+# through the server-side switch.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  # Gate: the server is only touched if the code is actually sound.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # npm 11 blocks install scripts unless allow-listed. The repo's
+      # package.json pins the approvals, so the native SQLite module builds.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify the native SQLite driver loaded
+        run: node -e "require('better-sqlite3'); console.log('better-sqlite3 OK')"
+
+      - name: Generate Prisma client
+        run: npm run db:generate -w @shop/api
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          # Give the build room: npm ci + tsc + vite on a small VPS is slow.
+          command_timeout: 15m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export REPO_URL="https://github.com/${{ github.repository }}.git"
+            export REF="${{ github.sha }}"
+            bash /srv/shop/repo/deploy/deploy.sh
+
+      - name: Verify the site is live
+        run: |
+          set -euo pipefail
+          url="https://${{ secrets.DOMAIN }}/health"
+          echo "Checking $url"
+          for i in $(seq 1 10); do
+            if body=$(curl -fsS --max-time 10 "$url"); then
+              echo "$body"
+              echo "$body" | grep -q '"ok":true' && exit 0
+            fi
+            sleep 3
+          done
+          echo "Public health check failed" >&2
+          exit 1

@@ -1,0 +1,175 @@
+// Prisma schema for the Telegram Mini App shop (digital goods).
+//
+// Local dev uses SQLite via a driver adapter. Moving to PostgreSQL later means
+// changing `provider` to "postgresql", swapping the adapter in src/db.ts and
+// regenerating migrations. The model layout is intentionally Postgres-safe:
+// no SQLite-only types are used.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+
+  // The generated client is TypeScript. `tsc` compiles it to dist/ but does not
+  // rewrite import specifiers, and Node's ESM loader requires explicit
+  // extensions. Emitting ".js" specifiers keeps both `tsx` (dev) and the
+  // compiled output (production) resolvable.
+  importFileExtension = "js"
+  moduleFormat        = "esm"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// A Telegram user who opened the Mini App.
+model User {
+  id           String   @id @default(cuid())
+  /// Telegram user id. Stored as String because it can exceed 2^53.
+  telegramId   String   @unique
+  firstName    String
+  lastName     String?
+  username     String?
+  languageCode String?
+  isPremium    Boolean  @default(false)
+  isAdmin      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([createdAt])
+}
+
+model Category {
+  id        String  @id @default(cuid())
+  slug      String  @unique
+  title     String
+  emoji     String?
+  sortOrder Int     @default(0)
+
+  products Product[]
+
+  @@index([sortOrder])
+}
+
+/// Fulfillment strategy for a digital product.
+/// Kept as String + app-level enum so SQLite and Postgres behave identically.
+///   LICENSE_KEY | FILE | LINK
+model Product {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  title       String
+  subtitle    String?
+  description String  @default("")
+  imageUrl    String?
+
+  /// Price in the currency's smallest unit (Stars: whole stars).
+  amountMinor    Int
+  currency       String  @default("XTR")
+  /// Optional "was" price for discount display.
+  compareAtMinor Int?
+
+  fulfillmentKind String @default("LICENSE_KEY")
+
+  /// Static payload for FILE / LINK products (URL or file id).
+  staticPayload String?
+
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  licenseKeys LicenseKey[]
+  orderLines  OrderLine[]
+
+  @@index([isActive, sortOrder])
+  @@index([categoryId])
+}
+
+/// One unit of sellable stock for LICENSE_KEY products.
+/// Stock is rows, not a counter: claiming a key is a single conditional UPDATE,
+/// which makes overselling impossible even under concurrent checkouts.
+model LicenseKey {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// The secret handed to the buyer.
+  secret    String
+  claimedAt DateTime?
+  createdAt DateTime @default(now())
+
+  /// Set once the key is delivered. Unique so one key maps to one line.
+  orderLineId String?    @unique
+  orderLine   OrderLine? @relation(fields: [orderLineId], references: [id], onDelete: SetNull)
+
+  @@unique([productId, secret])
+  @@index([productId, claimedAt])
+}
+
+/// PENDING | PAID | CANCELLED | REFUNDED | FAILED
+model Order {
+  id     String @id @default(cuid())
+  /// Short code shown to the buyer, e.g. "A7F3C1".
+  reference String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status           String @default("PENDING")
+  currency         String
+  totalAmountMinor Int
+  comment          String?
+
+  /// Opaque payload echoed back by Telegram in successful_payment.
+  invoicePayload String  @unique
+  invoiceUrl     String?
+
+  /// Telegram payment identifiers, present after payment.
+  telegramPaymentChargeId String? @unique
+  providerPaymentChargeId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  paidAt    DateTime?
+
+  lines OrderLine[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model OrderLine {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  /// Snapshots: the order must stay readable even if the product changes later.
+  titleSnapshot   String
+  unitAmountMinor Int
+  quantity        Int    @default(1)
+  totalAmountMinor Int
+  fulfillmentKind String
+
+  /// Secret delivered to the buyer (key, link). Null until paid.
+  deliveredPayload String?
+
+  licenseKeys LicenseKey[]
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+/// Idempotency guard for Telegram webhook updates.
+/// Telegram retries updates; processing one twice would deliver goods twice.
+model ProcessedUpdate {
+  updateId  String   @id
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

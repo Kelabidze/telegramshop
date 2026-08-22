@@ -1,0 +1,25 @@
+# Normalize line endings so files behave the same on Windows and Linux.
+* text=auto eol=lf
+
+# Shell scripts MUST use LF: a CRLF shebang makes Linux fail with
+# "bad interpreter: /usr/bin/env bash^M: no such file or directory".
+*.sh text eol=lf
+deploy/Caddyfile text eol=lf
+*.service text eol=lf
+
+# Keep Windows-native files as-is.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary files: never touch.
+*.png binary
+*.jpg binary
+*.ico binary
+*.node binary
+*.db binary
+*.tgz binary
+
+# Generated / vendored: exclude from diffs and language stats.
+package-lock.json -diff linguist-generated
+apps/api/src/generated/** linguist-generated

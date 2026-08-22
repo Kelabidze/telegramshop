@@ -1,0 +1,39 @@
+{
+  "name": "tg-shop-miniapp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @shop/api",
+    "dev:web": "npm run dev -w @shop/miniapp",
+    "build": "npm run build -w @shop/shared && npm run build -w @shop/api && npm run build -w @shop/miniapp",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:push": "npm run db:push -w @shop/api",
+    "db:seed": "npm run db:seed -w @shop/api",
+    "db:studio": "npm run db:studio -w @shop/api",
+    "bot:set-webhook": "npm run bot:set-webhook -w @shop/api",
+    "bot:delete-webhook": "npm run bot:delete-webhook -w @shop/api",
+    "tunnel": "cloudflared tunnel --url http://localhost:5173"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "better-sqlite3@13.0.3": true,
+    "prebuild-install@7.1.3": true,
+    "@prisma/engines@7.9.1": true,
+    "prisma@7.9.1": true,
+    "esbuild@0.28.2": true
+  }
+}

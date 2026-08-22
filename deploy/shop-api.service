@@ -1,0 +1,51 @@
+[Unit]
+Description=Telegram Mini App Shop API
+Documentation=https://core.telegram.org/bots/webapps
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=shop
+Group=shop
+WorkingDirectory=/srv/shop/current/apps/api
+
+# Secrets live outside the repo so a deploy never overwrites them.
+# systemd reads this itself, which avoids relying on Node's
+# --env-file-if-exists flag (only available on Node >= 20.12).
+EnvironmentFile=/srv/shop/shared/api.env
+
+ExecStart=/usr/bin/node dist/server.js
+
+Restart=always
+RestartSec=3
+# If the service keeps crashing, stop flapping and leave it failed so the
+# problem is visible in `systemctl status` instead of hidden in a restart loop.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=shop-api
+
+# --- hardening -------------------------------------------------------------
+# The API only needs to read its code and write its SQLite database.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# The only writable paths: the database directory and the release dir.
+ReadWritePaths=/srv/shop/shared
+
+[Install]
+WantedBy=multi-user.target
