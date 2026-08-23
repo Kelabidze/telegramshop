@@ -13,7 +13,7 @@
 set -euo pipefail
 
 APP_ROOT="${APP_ROOT:-/srv/shop}"
-REPO_URL="${REPO_URL:-}"
+REPO_URL="${REPO_URL:-https://github.com/Kelabidze/telegramshop.git}"
 REF="${REF:-main}"
 KEEP_RELEASES="${KEEP_RELEASES:-5}"
 SERVICE="${SERVICE:-shop-api}"
@@ -28,6 +28,12 @@ fail() { printf '\n\033[1;31mFAILED: %s\033[0m\n' "$1" >&2; exit 1; }
 
 # --- 1. fetch source -------------------------------------------------------
 log "Fetching source (${REF})"
+
+# Git refuses to operate on a repo owned by another user ("dubious ownership").
+# Declaring it safe keeps the deploy working even if the clone was made by root.
+git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$REPO_DIR" \
+  || git config --global --add safe.directory "$REPO_DIR"
+
 if [[ ! -d "$REPO_DIR/.git" ]]; then
   [[ -n "$REPO_URL" ]] || fail "REPO_URL is required for the first deploy"
   git clone --quiet "$REPO_URL" "$REPO_DIR"

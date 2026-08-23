@@ -3,9 +3,10 @@
 # Caddy obtains and renews a Let's Encrypt certificate automatically, which is
 # what Telegram requires: Mini Apps only open over HTTPS with a valid cert.
 #
-# Install to /etc/caddy/Caddyfile and replace shop.example.com with your domain.
+# Installed to /etc/caddy/Caddyfile by deploy/setup-server.sh, which rewrites
+# the domain from the DOMAIN variable. Edit there, not here, or re-run setup.
 
-shop.example.com {
+ochkisk.shop {
 	encode zstd gzip
 
 	# --- API + bot webhook ---------------------------------------------------

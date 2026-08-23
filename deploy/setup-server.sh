@@ -3,27 +3,35 @@
 # One-time VPS provisioning for the Telegram Mini App shop.
 # Target: Ubuntu 22.04 / 24.04 (Debian 12 also works).
 #
-# Idempotent: safe to re-run. Installs Node, Caddy, creates the service user
-# and directory layout, but does NOT deploy code (see deploy.sh) and does NOT
-# write secrets (you do that once, by hand).
+# Installs Node + Caddy, creates the service user and directory layout, clones
+# the repo and generates a secrets file. Does NOT deploy code (see deploy.sh)
+# and never overwrites an existing secrets file.
 #
-# Usage (as root):
-#   DOMAIN=shop.example.com bash setup-server.sh
+# Idempotent: safe to re-run.
+#
+# Usage (as root, from a checkout of this repo):
+#   sudo bash deploy/setup-server.sh
+#
+# Or standalone, without cloning first:
+#   curl -fsSL https://raw.githubusercontent.com/Kelabidze/telegramshop/main/deploy/setup-server.sh | sudo bash
+#
+# Overridable: DOMAIN, REPO_URL, APP_USER, APP_ROOT, NODE_MAJOR
 
 set -euo pipefail
 
-DOMAIN="${DOMAIN:-}"
+DOMAIN="${DOMAIN:-ochkisk.shop}"
+REPO_URL="${REPO_URL:-https://github.com/Kelabidze/telegramshop.git}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 APP_USER="${APP_USER:-shop}"
 APP_ROOT="${APP_ROOT:-/srv/shop}"
 
 if [[ $EUID -ne 0 ]]; then
-  echo "Run as root: sudo DOMAIN=your.domain bash setup-server.sh" >&2
+  echo "Run as root: sudo bash setup-server.sh" >&2
   exit 1
 fi
 
 if [[ -z "$DOMAIN" ]]; then
-  echo "DOMAIN is required, e.g. DOMAIN=shop.example.com bash setup-server.sh" >&2
+  echo "DOMAIN is empty. Pass it explicitly: DOMAIN=your.domain bash setup-server.sh" >&2
   exit 1
 fi
 
@@ -31,11 +39,12 @@ echo "==> Installing base packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 # git: pulling the repo. curl/ca-certificates: fetching keys.
+# sudo: deploy.sh uses it to restart the service and to drop privileges.
 # build-essential + python3: fallback if a prebuilt SQLite binary is missing
 # for this Node ABI, so `npm ci` can compile instead of failing.
 apt-get install -y -qq \
   git curl ca-certificates gnupg debian-keyring debian-archive-keyring \
-  apt-transport-https build-essential python3 ufw
+  apt-transport-https build-essential python3 ufw sudo openssl
 
 echo "==> Installing Node.js ${NODE_MAJOR}.x"
 if ! command -v node >/dev/null 2>&1 || \
@@ -71,6 +80,19 @@ install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/releases"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_ROOT/shared"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_ROOT/shared/data"
 install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/repo"
+
+echo "==> Preparing the source checkout"
+# The repo is cloned AS the app user: deploy.sh runs as that user and must be
+# able to `git fetch` here. A root-owned clone would break every deploy.
+if [[ ! -d "$APP_ROOT/repo/.git" ]]; then
+  sudo -u "$APP_USER" git clone --quiet "$REPO_URL" "$APP_ROOT/repo"
+  echo "    cloned ${REPO_URL}"
+else
+  # Fix ownership in case an earlier run cloned it as root.
+  chown -R "$APP_USER:$APP_USER" "$APP_ROOT/repo"
+  sudo -u "$APP_USER" git -C "$APP_ROOT/repo" remote set-url origin "$REPO_URL"
+  echo "    repo already present; ownership and remote refreshed"
+fi
 
 echo "==> Preparing secrets file"
 ENV_FILE="$APP_ROOT/shared/api.env"
@@ -118,24 +140,42 @@ else
 fi
 
 echo "==> Configuring Caddy for ${DOMAIN}"
-CADDY_SRC="$(dirname "$0")/Caddyfile"
+# Take the configs from the clone, not from $(dirname $0): that way this script
+# also works when piped straight from curl, with no local checkout.
+DEPLOY_DIR="$APP_ROOT/repo/deploy"
+CADDY_SRC="$DEPLOY_DIR/Caddyfile"
 if [[ -f "$CADDY_SRC" ]]; then
-  sed "s/shop\.example\.com/${DOMAIN}/g" "$CADDY_SRC" > /etc/caddy/Caddyfile
+  # Rewrite whatever domain the site block declares to $DOMAIN, so this works
+  # regardless of which domain is committed in the repo.
+  awk -v d="$DOMAIN" '
+    # The site address is the first line at column 0 that ends in "{".
+    !done && /^[^[:space:]#].*\{[[:space:]]*$/ { print d " {"; done=1; next }
+    { print }
+  ' "$CADDY_SRC" > /etc/caddy/Caddyfile
+
+  grep -q "^${DOMAIN} {" /etc/caddy/Caddyfile \
+    || { echo "    ERROR: failed to set the domain in /etc/caddy/Caddyfile" >&2; exit 1; }
+
   install -d -o caddy -g caddy /var/log/caddy
-  caddy validate --config /etc/caddy/Caddyfile >/dev/null
+  caddy validate --config /etc/caddy/Caddyfile >/dev/null \
+    || { echo "    ERROR: Caddyfile failed validation" >&2; exit 1; }
   systemctl reload caddy 2>/dev/null || systemctl restart caddy
-  echo "    Caddyfile installed and validated"
+  echo "    Caddyfile installed and validated for ${DOMAIN}"
 else
-  echo "    WARNING: Caddyfile not found next to this script; configure manually"
+  echo "    ERROR: ${CADDY_SRC} not found" >&2
+  exit 1
 fi
 
 echo "==> Installing systemd unit"
-UNIT_SRC="$(dirname "$0")/shop-api.service"
+UNIT_SRC="$DEPLOY_DIR/shop-api.service"
 if [[ -f "$UNIT_SRC" ]]; then
   cp "$UNIT_SRC" /etc/systemd/system/shop-api.service
   systemctl daemon-reload
   systemctl enable shop-api >/dev/null
   echo "    shop-api.service installed and enabled"
+else
+  echo "    ERROR: ${UNIT_SRC} not found" >&2
+  exit 1
 fi
 
 echo "==> Granting the deploy user permission to restart the service"
@@ -164,24 +204,44 @@ ufw allow 443/tcp >/dev/null
 ufw --force enable >/dev/null
 echo "    ufw active; 8080 intentionally NOT exposed"
 
+echo "==> Checking DNS for ${DOMAIN}"
+# Caddy cannot obtain a certificate until the domain resolves to THIS server.
+# Warn loudly instead of failing: DNS may still be propagating.
+MY_IP="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null || echo '')"
+RESOLVED="$(getent hosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | head -1)"
+if [[ -z "$RESOLVED" ]]; then
+  echo "    WARNING: ${DOMAIN} does not resolve yet; the certificate will fail until it does"
+elif [[ -n "$MY_IP" && "$RESOLVED" != "$MY_IP" ]]; then
+  echo "    WARNING: ${DOMAIN} -> ${RESOLVED}, but this server is ${MY_IP}"
+  echo "             Let's Encrypt will refuse until the A record points here."
+else
+  echo "    OK: ${DOMAIN} -> ${RESOLVED}"
+fi
+
 cat <<EOF
 
 ==========================================================================
-Server ready. Next steps:
+Server ready for ${DOMAIN}.
 
-1. Point DNS: an A record for ${DOMAIN} -> this server's IP.
-   Verify:  dig +short ${DOMAIN}
+DNS already resolves ochkisk.shop -> 176.119.156.77, so Caddy will request a
+certificate as soon as it serves the first request on port 80/443.
 
-2. Put your bot token into the secrets file:
+Next steps:
+
+1. Put your bot token into the secrets file:
    nano ${APP_ROOT}/shared/api.env      # set TELEGRAM_BOT_TOKEN=
 
-3. Deploy the code (from your machine or via GitHub Actions):
-   sudo -u ${APP_USER} REPO_URL=https://github.com/<you>/<repo>.git \\
-        bash ${APP_ROOT}/repo/deploy/deploy.sh
+2. Deploy the code:
+   sudo -u ${APP_USER} bash ${APP_ROOT}/repo/deploy/deploy.sh
 
-4. Register the Telegram webhook (after the first deploy):
+3. Register the Telegram webhook (after the first deploy):
    cd ${APP_ROOT}/current/apps/api && sudo -u ${APP_USER} npm run bot:set-webhook
 
-5. In @BotFather: /newapp -> Web App URL = https://${DOMAIN}
+4. In @BotFather: /newapp -> Web App URL = https://${DOMAIN}
+
+Useful:
+   systemctl status shop-api
+   journalctl -u shop-api -f
+   journalctl -u caddy -n 30        # certificate issuance problems show here
 ==========================================================================
 EOF
