@@ -150,39 +150,30 @@ npm run bot:delete-webhook
 
 ### Шаг 1. Залить код на GitHub
 
-Репозиторий уже инициализирован, первый коммит сделан. Создайте пустое репо на
-GitHub и запушьте:
+Уже сделано: `https://github.com/Kelabidze/telegramshop`, ветка `main`.
 
-```bash
-git remote add origin https://github.com/<вы>/<репо>.git
-git branch -M main
-git push -u origin main
-```
+### Шаг 2. Домен
 
-### Шаг 2. Направить домен на VPS
-
-A-запись `shop.example.com` → IP сервера. Проверить:
-
-```bash
-dig +short shop.example.com
-```
-
-Пока DNS не резолвится, Caddy не получит сертификат.
+`ochkisk.shop` → `176.119.156.77`. A-запись уже настроена и резолвится, так что
+Caddy получит сертификат сразу после установки.
 
 ### Шаг 3. Настроить сервер (один раз)
 
-На VPS под root:
+На VPS под root — одной командой, ничего предварительно клонировать не нужно:
 
 ```bash
-git clone https://github.com/<вы>/<репо>.git /srv/shop/repo
-cd /srv/shop/repo
-sudo DOMAIN=shop.example.com bash deploy/setup-server.sh
+curl -fsSL https://raw.githubusercontent.com/Kelabidze/telegramshop/main/deploy/setup-server.sh | sudo bash
 ```
 
-Скрипт идемпотентный — можно запускать повторно. Он ставит Node 22, Caddy,
-создаёт пользователя `shop`, раскладку каталогов, генерирует секрет вебхука,
-настраивает firewall (наружу только 80/443, порт 8080 закрыт) и разрешает
-пользователю `shop` перезапускать **только** свой сервис.
+Скрипт идемпотентный, повторный запуск безопасен. Он ставит Node 22, Caddy,
+создаёт пользователя `shop`, раскладку каталогов, клонирует репозиторий
+**от имени `shop`** (иначе деплой не сможет делать `git fetch`), генерирует
+секрет вебхука, настраивает firewall (наружу только 22/80/443, порт 8080
+закрыт), выдаёт `shop` право перезапускать **только** свой сервис и проверяет,
+что домен указывает на этот сервер.
+
+Значения по умолчанию уже прописаны (`ochkisk.shop`, репозиторий). Переопределить
+можно так: `DOMAIN=... REPO_URL=... sudo bash deploy/setup-server.sh`.
 
 ### Шаг 4. Вписать токен бота
 
@@ -190,14 +181,16 @@ sudo DOMAIN=shop.example.com bash deploy/setup-server.sh
 sudo nano /srv/shop/shared/api.env      # TELEGRAM_BOT_TOKEN=...
 ```
 
+Остальное уже заполнено, включая сгенерированный `TELEGRAM_WEBHOOK_SECRET` и
+`PUBLIC_API_URL=https://ochkisk.shop`.
+
 В production сервер **не запустится** без токена, с `ALLOW_DEV_AUTH=true` или
 без секрета вебхука — это защита от опасной конфигурации, не придирка.
 
 ### Шаг 5. Первый деплой
 
 ```bash
-sudo -u shop REPO_URL=https://github.com/<вы>/<репо>.git \
-     bash /srv/shop/repo/deploy/deploy.sh
+sudo -u shop bash /srv/shop/repo/deploy/deploy.sh
 ```
 
 Что делает `deploy.sh`:
@@ -210,7 +203,13 @@ sudo -u shop REPO_URL=https://github.com/<вы>/<репо>.git \
 6. чистит старые релизы, никогда не удаляя активный.
 
 Сломанная сборка не «уронит» работающий сайт: переключение происходит только
-после успешной сборки.
+после успешной сборки. Первая сборка на слабом VPS занимает 2–4 минуты.
+
+Наполнить каталог демо-товарами (по желанию):
+
+```bash
+cd /srv/shop/current/apps/api && sudo -u shop npm run db:seed
+```
 
 ### Шаг 6. Вебхук и BotFather
 
@@ -219,7 +218,7 @@ cd /srv/shop/current/apps/api
 sudo -u shop npm run bot:set-webhook
 ```
 
-Затем в @BotFather: `/newapp` → Web App URL = `https://shop.example.com`.
+Затем в @BotFather: `/newapp` → Web App URL = `https://ochkisk.shop`.
 
 ### Шаг 7. Автодеплой из GitHub
 
@@ -231,18 +230,30 @@ typecheck, тесты и сборку, и **только если всё зел�
 
 ```bash
 ssh-keygen -t ed25519 -C "github-actions-deploy" -f deploy_key -N ""
-ssh-copy-id -i deploy_key.pub shop@<ip-сервера>
+```
+
+У `shop` пароль заблокирован (вход только по ключу), поэтому `ssh-copy-id` не
+сработает — скопируйте публичный ключ через root. Каталог `.ssh` уже создан
+скриптом настройки:
+
+```bash
+ssh root@176.119.156.77 "cat >> /home/shop/.ssh/authorized_keys" < deploy_key.pub
+```
+
+Проверьте, что доступ работает:
+
+```bash
+ssh -i deploy_key shop@176.119.156.77 "echo ok && systemctl is-active shop-api"
 ```
 
 В GitHub → Settings → Secrets and variables → Actions добавьте:
 
-| Secret     | Значение                              |
-| ---------- | ------------------------------------- |
-| `SSH_HOST` | IP или домен сервера                  |
-| `SSH_USER` | `shop`                                |
-| `SSH_KEY`  | содержимое приватного `deploy_key`    |
-| `DOMAIN`   | `shop.example.com`                    |
-| `SSH_PORT` | порт SSH, если не 22 (необязательно)  |
+| Secret     | Значение                           |
+| ---------- | ---------------------------------- |
+| `SSH_HOST` | `176.119.156.77`                   |
+| `SSH_USER` | `shop`                             |
+| `SSH_KEY`  | содержимое приватного `deploy_key` |
+| `DOMAIN`   | `ochkisk.shop`                     |
 
 Приватный ключ после этого удалите с диска: он живёт только в секретах GitHub.
 

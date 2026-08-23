@@ -66,10 +66,31 @@ fi
 
 echo "==> Creating service user '${APP_USER}'"
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
-  # System account: no login shell, no password. It only runs the API.
+  # A real shell is required: GitHub Actions deploys by running deploy.sh over
+  # SSH as this user. Password login stays disabled (`--disabled-password`
+  # equivalent: no password is ever set), so access is key-only.
   useradd --system --create-home --home-dir "/home/${APP_USER}" \
-          --shell /usr/sbin/nologin "$APP_USER"
+          --shell /bin/bash "$APP_USER"
+  # Explicitly lock the password so only SSH keys can authenticate.
+  passwd --lock "$APP_USER" >/dev/null
+  echo "    created (shell: /bin/bash, password locked, key-only access)"
+else
+  # An earlier version of this script created the account with nologin, which
+  # silently breaks SSH-based deploys. Repair it.
+  CURRENT_SHELL="$(getent passwd "$APP_USER" | cut -d: -f7)"
+  if [[ "$CURRENT_SHELL" == *nologin* || "$CURRENT_SHELL" == *false* ]]; then
+    usermod --shell /bin/bash "$APP_USER"
+    echo "    existing account had ${CURRENT_SHELL}; switched to /bin/bash for SSH deploys"
+  else
+    echo "    already exists (shell: ${CURRENT_SHELL})"
+  fi
 fi
+
+# SSH directory for the deploy key used by GitHub Actions.
+install -d -o "$APP_USER" -g "$APP_USER" -m 700 "/home/${APP_USER}/.ssh"
+touch "/home/${APP_USER}/.ssh/authorized_keys"
+chown "$APP_USER:$APP_USER" "/home/${APP_USER}/.ssh/authorized_keys"
+chmod 600 "/home/${APP_USER}/.ssh/authorized_keys"
 
 echo "==> Creating directory layout under ${APP_ROOT}"
 # releases/  : timestamped deployments (atomic switch + rollback)
