@@ -71,8 +71,24 @@ const INCLUDE = [
   'apps/miniapp/dist',
 ];
 
+/**
+ * Pre-installed production dependencies, produced by the CI step
+ * "Install production dependencies for the artifact". Shipping them is what
+ * lets the server avoid `npm ci` entirely: on a 1 GB VPS that command gets
+ * OOM-killed while resolving ~13.8k files.
+ *
+ * The tradeoff is deliberate: better-sqlite3 contains a native binary bound to
+ * one OS/arch/Node ABI, so this artifact is only valid for the platform it was
+ * built on. deploy.sh refuses to install it when the Node major differs.
+ */
+const PROD_DEPS_DIR = path.join('build', 'prod-deps');
+
 /** Dead weight at runtime: sourcemaps and type declarations. */
 function isDroppable(filePath) {
+  // Inside node_modules these files are load-bearing often enough (packages ship
+  // .d.ts that their own runtime code references via require) that pruning them
+  // is not worth the risk for the few MB saved.
+  if (filePath.includes(`${path.sep}node_modules${path.sep}`)) return false;
   return (
     filePath.endsWith('.map') ||
     filePath.endsWith('.d.ts') ||
@@ -123,6 +139,44 @@ for (const relative of INCLUDE) {
   }
 }
 
+// --- 2b. stage the pre-installed production dependencies -------------------
+// Without these the server would have to run `npm ci`, which is what the OOM
+// killer stops on this VPS.
+const prodDeps = path.join(repoRoot, PROD_DEPS_DIR, 'node_modules');
+if (!existsSync(prodDeps)) {
+  fail(
+    `missing ${PROD_DEPS_DIR}/node_modules.\n` +
+      '  Build it the same way CI does:\n' +
+      `    mkdir -p ${PROD_DEPS_DIR} && cp package.json package-lock.json ${PROD_DEPS_DIR}/\n` +
+      `    (plus every workspace package.json) && npm ci --omit=dev --prefix ${PROD_DEPS_DIR}`,
+  );
+}
+
+// `verbatimSymlinks` keeps npm's workspace links as links instead of following
+// them. Left to dereference, cpSync would inline apps/api into
+// node_modules/@shop/api and produce a recursive copy.
+cpSync(prodDeps, path.join(stageDir, 'node_modules'), {
+  recursive: true,
+  verbatimSymlinks: true,
+});
+
+// npm links workspace members into node_modules/@shop/*. Those links point at
+// the checkout on the runner, which does not exist on the server, so replace
+// them with the real (already compiled) packages. Node resolves
+// `@shop/shared` through this path at runtime.
+const shopScope = path.join(stageDir, 'node_modules', '@shop');
+rmSync(shopScope, { recursive: true, force: true });
+mkdirSync(shopScope, { recursive: true });
+for (const [name, source] of [
+  ['shared', 'packages/shared'],
+  ['api', 'apps/api'],
+  ['miniapp', 'apps/miniapp'],
+]) {
+  const from = path.join(stageDir, source);
+  if (!existsSync(from)) continue;
+  cpSync(from, path.join(shopScope, name), { recursive: true });
+}
+
 // --- 3. record what this artifact is --------------------------------------
 // The server reads this to report the deployed commit and to refuse an
 // artifact built for a different Node major (native modules are ABI-bound).
@@ -148,8 +202,18 @@ const metadata = {
   subject: gitValue(['log', '-1', '--pretty=%s'], ''),
   builtAt: new Date().toISOString(),
   builtBy: process.env.GITHUB_RUN_ID ? 'github-actions' : 'local',
-  /** Node major used for the build. The server warns when it differs. */
+  /**
+   * Node major used for the build. Now that node_modules travel inside the
+   * artifact, a mismatch is fatal rather than cosmetic: better-sqlite3's
+   * compiled binary targets one ABI. deploy.sh refuses to install on a
+   * different major.
+   */
   nodeMajor: process.versions.node.split('.')[0],
+  /** Same reasoning: the native binary is built for one OS and architecture. */
+  platform: process.platform,
+  arch: process.arch,
+  /** Set once node_modules are bundled, so an old artifact is still readable. */
+  bundledDependencies: true,
   requiredNode: rootManifest.engines?.node ?? null,
 };
 

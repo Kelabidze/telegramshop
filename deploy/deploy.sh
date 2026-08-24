@@ -65,6 +65,9 @@ COMMIT="$(json_value commitShort)"
 SUBJECT="$(json_value subject)"
 BUILD_NODE="$(json_value nodeMajor)"
 BUILT_AT="$(json_value builtAt)"
+BUILD_PLATFORM="$(json_value platform)"
+BUILD_ARCH="$(json_value arch)"
+BUNDLED="$(sed -n 's/.*"bundledDependencies"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' <<<"$META" | head -1)"
 [[ -n "$COMMIT" ]] || fail "artifact.json has no commit information"
 
 LOCAL_NODE="$(node -p 'process.versions.node.split(".")[0]')"
@@ -73,7 +76,30 @@ echo "    commit    ${COMMIT}  ${SUBJECT}"
 echo "    built     ${BUILT_AT} on Node ${BUILD_NODE}.x"
 echo "    this host  Node ${LOCAL_NODE}.x"
 
-if [[ "$BUILD_NODE" != "$LOCAL_NODE" ]]; then
+# node_modules now travel inside the artifact, including better-sqlite3's
+# compiled binary. That binary is valid for exactly one Node ABI, OS and
+# architecture, so a mismatch must stop the deploy instead of producing a
+# baffling "invalid ELF header" or "was compiled against a different Node
+# version" at the first database query.
+if [[ "$BUNDLED" == "true" ]]; then
+  echo "    deps      bundled (${BUILD_PLATFORM:-?}/${BUILD_ARCH:-?})"
+
+  if [[ "$BUILD_NODE" != "$LOCAL_NODE" ]]; then
+    fail "artifact was built on Node ${BUILD_NODE}.x but this host runs ${LOCAL_NODE}.x.
+       The bundled native SQLite driver is ABI-bound and would fail at runtime.
+       Align env.NODE_VERSION in .github/workflows/deploy.yml with NODE_MAJOR
+       in deploy/setup-server.sh, then rebuild."
+  fi
+
+  LOCAL_PLATFORM="$(node -p 'process.platform')"
+  LOCAL_ARCH="$(node -p 'process.arch')"
+  if [[ -n "$BUILD_PLATFORM" && "$BUILD_PLATFORM" != "$LOCAL_PLATFORM" ]] \
+    || [[ -n "$BUILD_ARCH" && "$BUILD_ARCH" != "$LOCAL_ARCH" ]]; then
+    fail "artifact was built for ${BUILD_PLATFORM}/${BUILD_ARCH} but this host is ${LOCAL_PLATFORM}/${LOCAL_ARCH}."
+  fi
+elif [[ "$BUILD_NODE" != "$LOCAL_NODE" ]]; then
+  # Legacy artifact without bundled dependencies: a warning is enough, since
+  # the server used to install (and therefore compile) its own binaries.
   echo "    WARNING: built on Node ${BUILD_NODE}.x but this server runs ${LOCAL_NODE}.x."
   echo "             Align the Node major in the workflow and on the server."
 fi
@@ -115,30 +141,45 @@ set -a
 source "$SHARED_DIR/api.env"
 set +a
 
-# --- 5. production dependencies -------------------------------------------
-log "Installing production dependencies"
-# `--omit=dev` skips TypeScript, Vite and the test tooling: the code is already
-# compiled, so ~425 MB of dev dependencies become ~100 MB of runtime ones.
-#
-# Install scripts stay ENABLED on purpose. The Prisma SQLite adapter depends on
-# better-sqlite3, whose install step downloads a prebuilt binary for this exact
-# platform and Node ABI (falling back to a source build). Disabling scripts here
-# would leave the driver without its native module and the API would fail on the
-# first query.
-npm ci --omit=dev --no-audit --no-fund 2>&1 | tail -5 \
-  || fail "npm ci failed; see the output above"
+# --- 5. dependencies -------------------------------------------------------
+# Nothing is installed here. `npm ci` used to run at this point and was killed
+# by the OOM killer on this VPS: resolving the workspace graph (~13.8k files,
+# ~370 MB on disk) needs more memory than the box has. The runner now installs
+# the production tree and ships it inside the artifact, so this step is a
+# verification rather than an installation.
+log "Verifying bundled dependencies"
+
+if [[ "$BUNDLED" == "true" ]]; then
+  [[ -d "$RELEASE/node_modules" ]] \
+    || fail "artifact claims bundled dependencies but has no node_modules"
+
+  # The workspace link npm would normally create; pack-artifact.mjs replaces it
+  # with the real compiled package because a symlink to the runner's checkout
+  # would dangle here.
+  [[ -f "$RELEASE/node_modules/@shop/shared/dist/index.js" ]] \
+    || fail "bundled node_modules is missing the compiled @shop/shared contract"
+else
+  # Legacy artifact: fall back to installing, accepting the OOM risk.
+  log "Legacy artifact without bundled dependencies; installing on the server"
+  npm ci --omit=dev --no-audit --no-fund \
+    || fail "npm ci failed (this host has little RAM; prefer an artifact with bundled dependencies)"
+fi
 
 # Fail loudly here rather than at the first database query. The adapter resolves
 # its own nested copy of better-sqlite3, so probe through the adapter itself
-# instead of a bare require that may resolve elsewhere.
+# instead of a bare require that may resolve elsewhere. With a bundled tree this
+# is also the ABI check: a binary built for another Node major fails right here.
 node -e "import('@prisma/adapter-better-sqlite3').then(()=>{},e=>{console.error(e.message);process.exit(1)})" \
-  || fail "the SQLite driver did not load; check the npm ci output above"
+  || fail "the bundled SQLite driver did not load; the artifact was likely built for a different Node ABI or platform"
 
 # --- 6. database schema ----------------------------------------------------
 log "Applying database schema"
 # `db push` only adds missing tables and columns. It never drops data unless the
-# schema itself removed something.
-npm run db:push 2>&1 | tail -5 || fail "prisma db push failed"
+# schema itself removed something. The Prisma CLI travels inside the artifact,
+# so this needs no network and no install.
+#
+# Full output on failure: `tail -5` used to hide the actual Prisma error.
+npm run db:push || fail "prisma db push failed; see the output above"
 
 echo "$COMMIT" > "$RELEASE/.deployed-commit"
 cp -f "$RELEASE/artifact.json" "$RELEASE/.artifact.json" 2>/dev/null || true

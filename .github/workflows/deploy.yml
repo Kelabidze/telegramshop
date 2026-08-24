@@ -61,8 +61,35 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Compiled output + manifests only, ~0.2 MB gzipped. No node_modules:
-      # the server installs those itself so native binaries match its Node ABI.
+      # The VPS has too little RAM to run `npm ci` at all: resolving this graph
+      # (~13.8k files, 370 MB) gets the process OOM-killed. So the runner
+      # produces the exact runtime tree the server will use and ships it inside
+      # the artifact. `--omit=dev` is still worth it, and install scripts stay
+      # enabled so better-sqlite3 gets its native binary for THIS platform —
+      # which is why the runner OS/arch and Node major must match the server.
+      #
+      # A separate directory keeps the dev tree (needed by the build above)
+      # from being mixed into the production one.
+      - name: Install production dependencies for the artifact
+        run: |
+          rm -rf build/prod-deps
+          mkdir -p build/prod-deps
+          cp package.json package-lock.json build/prod-deps/
+          # `npm ci` walks the whole workspace graph, so every member manifest
+          # must exist even though only the API runs on the server.
+          for pkg in packages/shared apps/api apps/miniapp; do
+            mkdir -p "build/prod-deps/$pkg"
+            cp "$pkg/package.json" "build/prod-deps/$pkg/"
+          done
+          # packages/shared has a `prepare` script that compiles it with tsc.
+          # tsc is a devDependency and absent here, so the script no-ops by
+          # design; the compiled dist/ is copied in by pack-artifact.mjs.
+          npm ci --omit=dev --no-audit --no-fund --prefix build/prod-deps
+          node -e "process.chdir('build/prod-deps');import('@prisma/adapter-better-sqlite3').then(()=>console.log('SQLite adapter loads from the artifact tree'),e=>{console.error(e.message);process.exit(1)})"
+
+      # Compiled output + the production node_modules built just above, so the
+      # server runs npm never. Bigger on the wire (~110 MB) than the old
+      # manifest-only artifact, but the VPS cannot install dependencies itself.
       - name: Pack artifact
         run: npm run pack
 
