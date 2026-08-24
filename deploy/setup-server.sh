@@ -94,17 +94,20 @@ chmod 600 "/home/${APP_USER}/.ssh/authorized_keys"
 
 echo "==> Creating directory layout under ${APP_ROOT}"
 # releases/  : timestamped deployments (atomic switch + rollback)
+# incoming/  : upload target for build artifacts from CI
 # shared/    : secrets and the SQLite database, never touched by a deploy
 # current    : symlink to the active release
 install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT"
 install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/releases"
+install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/incoming"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_ROOT/shared"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_ROOT/shared/data"
 install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/repo"
 
 echo "==> Preparing the source checkout"
-# The repo is cloned AS the app user: deploy.sh runs as that user and must be
-# able to `git fetch` here. A root-owned clone would break every deploy.
+# Only the deploy scripts and server configs are needed here: application code
+# arrives as a pre-built artifact from CI. The clone is made AS the app user so
+# `git pull` below never hits "dubious ownership".
 if [[ ! -d "$APP_ROOT/repo/.git" ]]; then
   sudo -u "$APP_USER" git clone --quiet "$REPO_URL" "$APP_ROOT/repo"
   echo "    cloned ${REPO_URL}"
@@ -112,7 +115,11 @@ else
   # Fix ownership in case an earlier run cloned it as root.
   chown -R "$APP_USER:$APP_USER" "$APP_ROOT/repo"
   sudo -u "$APP_USER" git -C "$APP_ROOT/repo" remote set-url origin "$REPO_URL"
-  echo "    repo already present; ownership and remote refreshed"
+  sudo -u "$APP_USER" git -C "$APP_ROOT/repo" fetch --quiet --prune origin || true
+  sudo -u "$APP_USER" git -C "$APP_ROOT/repo" reset --quiet --hard origin/HEAD 2>/dev/null \
+    || sudo -u "$APP_USER" git -C "$APP_ROOT/repo" reset --quiet --hard origin/main 2>/dev/null \
+    || true
+  echo "    repo refreshed (deploy scripts and server configs)"
 fi
 
 echo "==> Preparing secrets file"

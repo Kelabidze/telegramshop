@@ -12,25 +12,33 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+# The Node major must match the server: compiled output and native modules are
+# both tied to it. setup-server.sh installs this same major.
+env:
+  NODE_VERSION: '22'
+
 jobs:
-  # Gate: the server is only touched if the code is actually sound.
-  verify:
+  # All heavy work happens here, on a free 4-core runner, so the VPS never
+  # compiles anything. The server is only touched if the code is sound.
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       # npm 11 blocks install scripts unless allow-listed. The repo's
-      # package.json pins the approvals, so the native SQLite module builds.
+      # package.json pins the approvals, so the native SQLite module installs.
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify the native SQLite driver loaded
-        run: node -e "require('better-sqlite3'); console.log('better-sqlite3 OK')"
+      # The Prisma SQLite adapter resolves its own nested better-sqlite3.
+      # Probe through the adapter, which is what the app actually loads.
+      - name: Verify the SQLite driver loaded
+        run: node -e "import('@prisma/adapter-better-sqlite3').then(()=>console.log('SQLite adapter OK'))"
 
       - name: Generate Prisma client
         run: npm run db:generate -w @shop/api
@@ -44,26 +52,71 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Compiled output + manifests only, ~0.2 MB gzipped. No node_modules:
+      # the server installs those itself so native binaries match its Node ABI.
+      - name: Pack artifact
+        run: npm run pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shop-release-${{ github.sha }}
+          path: |
+            build/artifact.tar.gz
+            build/artifact.tar.gz.sha256
+          retention-days: 14
+          if-no-files-found: error
+
   deploy:
-    needs: verify
+    needs: build
     runs-on: ubuntu-latest
     environment: production
     steps:
-      - name: Deploy over SSH
+      - uses: actions/download-artifact@v4
+        with:
+          name: shop-release-${{ github.sha }}
+          path: build
+
+      - name: Show what is being shipped
+        run: ls -lh build/ && cat build/artifact.tar.gz.sha256
+
+      # Upload before running anything: a failed transfer must not restart the
+      # service or touch the live release.
+      - name: Upload artifact to the server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: 'build/artifact.tar.gz,build/artifact.tar.gz.sha256'
+          target: /srv/shop/incoming
+          strip_components: 1
+          overwrite: true
+
+      - name: Install the release
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          # Give the build room: npm ci + tsc + vite on a small VPS is slow.
-          command_timeout: 15m
+          # No compilation on the server, but `npm ci --omit=dev` on a slow disk
+          # still needs room.
+          command_timeout: 10m
           script_stop: true
           script: |
             set -euo pipefail
-            export REPO_URL="https://github.com/${{ github.repository }}.git"
-            export REF="${{ github.sha }}"
-            bash /srv/shop/repo/deploy/deploy.sh
+
+            # Sync the deploy scripts to the commit being deployed. Application
+            # code arrives as an artifact, but deploy.sh, the Caddyfile and the
+            # systemd unit still live in git — without this the server would keep
+            # running an outdated deploy script.
+            git config --global --get-all safe.directory | grep -qxF /srv/shop/repo \
+              || git config --global --add safe.directory /srv/shop/repo
+            git -C /srv/shop/repo fetch --quiet --prune origin
+            git -C /srv/shop/repo checkout --quiet --detach ${{ github.sha }}
+
+            bash /srv/shop/repo/deploy/deploy.sh /srv/shop/incoming/artifact.tar.gz
 
       - name: Verify the site is live
         run: |

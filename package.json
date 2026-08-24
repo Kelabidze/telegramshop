@@ -15,6 +15,7 @@
     "dev:api": "npm run dev -w @shop/api",
     "dev:web": "npm run dev -w @shop/miniapp",
     "build": "npm run build -w @shop/shared && npm run build -w @shop/api && npm run build -w @shop/miniapp",
+    "pack": "node deploy/pack-artifact.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "db:push": "npm run db:push -w @shop/api",
