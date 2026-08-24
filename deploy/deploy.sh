@@ -242,7 +242,14 @@ if [[ -z "$CURRENT_TARGET" || "$CURRENT_TARGET" == "current" ]]; then
 else
   echo "    live release: ${CURRENT_TARGET}"
   cd "$RELEASES_DIR"
-  ls -1dt */ 2>/dev/null | tail -n "+$((KEEP_RELEASES + 1))" | while read -r old; do
+  # `set -euo pipefail` is in force and everything below runs AFTER the new
+  # release is already serving traffic, so nothing here may abort the script:
+  # a pruning hiccup must not report a successful deploy as failed. `ls` exits
+  # non-zero when the glob matches nothing, and `tail -n +N` closing early can
+  # make it exit on SIGPIPE, so the pipeline is explicitly tolerated.
+  OLD_RELEASES="$(ls -1dt */ 2>/dev/null | tail -n "+$((KEEP_RELEASES + 1))" || true)"
+  while read -r old; do
+    [[ -n "$old" ]] || continue
     old="${old%/}"
     # Never delete the live release, whatever the sort order says.
     if [[ "$old" == "$CURRENT_TARGET" ]]; then
@@ -250,8 +257,8 @@ else
       continue
     fi
     echo "    removing ${old}"
-    rm -rf -- "$old"
-  done
+    rm -rf -- "$old" || echo "    WARNING: could not remove ${old}"
+  done <<<"$OLD_RELEASES"
 fi
 
 # Fail loudly if pruning somehow broke the symlink.
