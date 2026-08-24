@@ -32,8 +32,17 @@ jobs:
 
       # npm 11 blocks install scripts unless allow-listed. The repo's
       # package.json pins the approvals, so the native SQLite module installs.
+      # `npm ci` also runs the `prepare` script of packages/shared, which emits
+      # its dist/ — @shop/shared resolves through "types": "./dist/index.d.ts",
+      # so without it every import of the contract fails to resolve and both
+      # typecheck and the tests below break on a clean checkout.
       - name: Install dependencies
         run: npm ci
+
+      # Fail here with a clear message rather than 12 confusing TS2307/TS7006
+      # errors if the contract ever stops being built during install.
+      - name: Verify the shared contract was built
+        run: test -f packages/shared/dist/index.d.ts
 
       # The Prisma SQLite adapter resolves its own nested better-sqlite3.
       # Probe through the adapter, which is what the app actually loads.

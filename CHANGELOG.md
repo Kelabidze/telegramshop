@@ -23,6 +23,36 @@
 
 ## [Unreleased]
 
+### Исправлено
+
+- **CI падал на любом чистом чекауте.** `packages/shared/dist` лежит в
+  `.gitignore`, а `@shop/shared` резолвится через `"types": "./dist/index.d.ts"`,
+  но в workflow сборка стояла **после** typecheck и тестов. В результате
+  контракт не был собран к моменту проверки: 9 ошибок `TS2307` («Cannot find
+  module `@shop/shared`») и каскадные `TS7006` implicit any у `line` в
+  `apps/api/src/routes/bot.ts`, `i` в `telegram/init-data.ts` и `line` в
+  `apps/miniapp/src/screens/OrdersScreen.tsx`. Тесты падали там же с
+  `ERR_MODULE_NOT_FOUND`. Теперь `packages/shared` собирается скриптом
+  `prepare` при `npm ci`, то есть до первой проверки; локальный клон тоже
+  больше не требует ручного `npm run build`. Типы `line` и `i` специально
+  оставлены выводимыми: они корректно приходят из Prisma, а ручная аннотация
+  разошлась бы со схемой при первом же её изменении.
+- Скрипт `prepare` тихо выходит, если `tsc` недоступен. Без этой проверки
+  `npm ci --omit=dev` в `deploy/deploy.sh` падал бы на сервере: в артефакте нет
+  ни `src`, ни `tsconfig.json`, ни TypeScript, а `prepare` выполняется даже с
+  `--omit=dev`.
+- Шаг «Verify the shared contract was built» в workflow проверяет наличие
+  `dist/index.d.ts` сразу после установки: если контракт снова перестанет
+  собираться, CI упадёт с понятным сообщением, а не с 12 запутанными
+  ошибками типов.
+- **`git submodule` возвращал код 128.** Каталог
+  `opencode-agentrouter-support/` был закоммичен как gitlink (mode `160000`)
+  без записи в `.gitmodules`, поэтому `git submodule status` и
+  `git submodule foreach` завершались с `fatal: no submodule mapping found`.
+  Коммит, на который указывал gitlink, недоступен ни в одном remote, так что
+  свежий клон получал пустой каталог. Каталог убран из индекса
+  (`git rm --cached`, файлы на диске не тронуты) и добавлен в `.gitignore`.
+
 ### Изменено
 
 - **Сборка перенесена с VPS в GitHub Actions.** Раньше сервер делал `npm ci`

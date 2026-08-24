@@ -17,7 +17,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "node -e \"try{require.resolve('typescript')}catch{process.exit(0)};require('child_process').execSync('tsc -p tsconfig.json',{stdio:'inherit'})\""
   },
   "dependencies": {
     "zod": "^4.4.3"

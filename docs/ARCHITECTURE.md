@@ -66,7 +66,8 @@ apps/miniapp/src/
 
 deploy/                      Caddyfile, systemd unit, setup-server.sh, deploy.sh,
                              pack-artifact.mjs (сборка артефакта для сервера)
-.github/workflows/deploy.yml CI: typecheck → test → build → pack → scp → install
+.github/workflows/deploy.yml CI: install (собирает shared) → typecheck → test →
+                             build → pack → scp → install
 ```
 
 ---

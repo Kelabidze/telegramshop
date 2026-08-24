@@ -29,3 +29,10 @@ Thumbs.db
 .tsbuildinfo
 *.tsbuildinfo
 .vite/
+
+# Unrelated third-party checkout that lives inside the working tree. It was
+# once staged as a gitlink (mode 160000) without a .gitmodules entry, which
+# made every `git submodule` call exit 128 with "no submodule mapping found"
+# and left a fresh clone with an empty directory, since the referenced commit
+# exists in no remote. Ignored so it cannot be committed again.
+opencode-agentrouter-support/
