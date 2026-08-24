@@ -112,7 +112,10 @@ jobs:
           # No compilation on the server, but `npm ci --omit=dev` on a slow disk
           # still needs room.
           command_timeout: 10m
-          script_stop: true
+          # There is deliberately no `script_stop` here: the input does not exist
+          # on this action (it warns "Unexpected input(s)" and is ignored), and
+          # `set -euo pipefail` on the first line of the script below already
+          # aborts on the first failing command.
           script: |
             set -euo pipefail
 

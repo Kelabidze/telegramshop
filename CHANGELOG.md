@@ -25,6 +25,13 @@
 
 ### Исправлено
 
+- **Убран несуществующий параметр `script_stop` у `appleboy/ssh-action@v1`.**
+  Actions логировал `Unexpected input(s) 'script_stop'` и игнорировал его:
+  в `action.yml` такого входа нет, а `entrypoint.sh` не пробрасывает
+  `INPUT_SCRIPT_STOP` в `drone-ssh`. Поведение «падать на первой ошибке»
+  обеспечивает `set -euo pipefail` в первой строке самого скрипта, так что
+  фактическая логика деплоя не меняется — уходит только шум в логах.
+
 - **CI падал на любом чистом чекауте.** `packages/shared/dist` лежит в
   `.gitignore`, а `@shop/shared` резолвится через `"types": "./dist/index.d.ts"`,
   но в workflow сборка стояла **после** typecheck и тестов. В результате
