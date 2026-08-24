@@ -74,18 +74,29 @@ jobs:
         run: |
           rm -rf build/prod-deps
           mkdir -p build/prod-deps
-          cp package.json package-lock.json build/prod-deps/
+          cp package.json package-lock.json tsconfig.base.json build/prod-deps/
           # `npm ci` walks the whole workspace graph, so every member manifest
           # must exist even though only the API runs on the server.
+          #
+          # tsconfig.json comes along too: packages/shared has a `prepare`
+          # script, npm runs it even under --omit=dev, and typescript IS present
+          # here (@prisma/client declares it as a non-dev optional peer, so
+          # --omit=dev cannot prune it). The script's guard therefore finds tsc
+          # and runs it; without the config files that call fails and takes the
+          # whole install down.
           for pkg in packages/shared apps/api apps/miniapp; do
             mkdir -p "build/prod-deps/$pkg"
             cp "$pkg/package.json" "build/prod-deps/$pkg/"
+            [ -f "$pkg/tsconfig.json" ] && cp "$pkg/tsconfig.json" "build/prod-deps/$pkg/"
           done
-          # packages/shared has a `prepare` script that compiles it with tsc.
-          # tsc is a devDependency and absent here, so the script no-ops by
-          # design; the compiled dist/ is copied in by pack-artifact.mjs.
+          # The contract's sources, so that tsc has something to compile.
+          mkdir -p build/prod-deps/packages/shared/src
+          cp -r packages/shared/src/. build/prod-deps/packages/shared/src/
           npm ci --omit=dev --no-audit --no-fund --prefix build/prod-deps
-          node -e "process.chdir('build/prod-deps');import('@prisma/adapter-better-sqlite3').then(()=>console.log('SQLite adapter loads from the artifact tree'),e=>{console.error(e.message);process.exit(1)})"
+          # Prove the native SQLite binary landed in the tree that will ship,
+          # not in the repo root's node_modules.
+          cd build/prod-deps
+          node -e "import('@prisma/adapter-better-sqlite3').then(()=>console.log('SQLite adapter loads from the artifact tree'),e=>{console.error(e.message);process.exit(1)})"
 
       # Compiled output + the production node_modules built just above, so the
       # server runs npm never. Bigger on the wire (~110 MB) than the old
