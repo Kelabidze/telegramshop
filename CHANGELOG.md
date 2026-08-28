@@ -25,6 +25,20 @@
 
 ### Изменено
 
+- **Обслуживающие скрипты запускаются на сервере без `tsx`.** Сид базы и
+  регистрация вебхука были `.ts`-файлами (`apps/api/prisma/seed.ts`,
+  `apps/api/scripts/webhook.ts`) и ехали в артефакт как исходники, а `tsx`,
+  которым они выполнялись, — devDependency. После перехода на production-only
+  `node_modules` в артефакте `npm run db:seed` и `npm run bot:set-webhook` на
+  сервере просто перестали существовать. Теперь оба скрипта живут в
+  `apps/api/src/cli/`, компилируются обычным `tsc` вместе с API и запускаются
+  в продакшене как `node --env-file=/srv/shop/shared/api.env dist/cli/seed.js`
+  и `… dist/cli/webhook.js set`. В разработке команды не изменились.
+  `pack-artifact.mjs` больше не кладёт в архив `.ts`-файлы, зато требует
+  наличия `dist/cli/seed.js` и `dist/cli/webhook.js`: импортов на них нет,
+  поэтому выпадение из сборки иначе всплыло бы только на сервере.
+  **BREAKING:** на сервере `npm run db:seed`/`npm run bot:set-webhook` больше
+  не работают — используйте команды выше (`docs/DEPLOYMENT.md`, раздел 4).
 - **Сервер больше не устанавливает зависимости: `node_modules` едут в
   артефакте.** `npm ci --omit=dev` на VPS убивал OOM killer
   (`Killed  npm ci --omit=dev`) — production-граф это ~13 800 файлов и ~370 МБ,

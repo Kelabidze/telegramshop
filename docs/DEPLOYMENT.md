@@ -59,6 +59,14 @@ Prisma CLI, тестовый тулинг), затем `tsc` и `vite build`. Н
 и платформой сборки. Без `.map`, `.d.ts` и исходников (внутри `node_modules`
 они сохраняются — некоторые пакеты грузят их в рантайме).
 
+**Обслуживающие скрипты — тоже часть `dist`.** Сид базы и регистрация вебхука
+живут в `apps/api/src/cli/` и компилируются вместе с API в `dist/cli/seed.js`
+и `dist/cli/webhook.js`. Раньше это были `prisma/seed.ts` и `scripts/webhook.ts`,
+которые ехали в артефакт как `.ts` и запускались через `tsx` — а `tsx` лежит в
+devDependencies, которых на сервере нет. `pack-artifact.mjs` проверяет наличие
+обоих файлов в списке `REQUIRED_BUILD_OUTPUTS`: на них никто не ссылается
+импортом, поэтому выпадение из сборки заметно только на сервере.
+
 **Почему `node_modules` внутри.** Сервер не выполняет ни `npm ci`, ни
 `npm install`. Раньше выполнял — и падал: разрешение графа зависимостей
 (~13 800 файлов, ~370 МБ на диске) не влезает в память VPS, процесс убивал
@@ -202,19 +210,30 @@ ssh shop@176.119.156.77 'bash /srv/shop/repo/deploy/deploy.sh'
 
 ```bash
 cd /srv/shop/current/apps/api
-sudo -u shop npm run bot:set-webhook
+sudo -u shop node --env-file=/srv/shop/shared/api.env dist/cli/webhook.js set
 ```
 
 Регистрирует `https://<домен>/telegram/webhook` с secret token и подпиской
 на `message`, `pre_checkout_query`, `callback_query` (последний пока не
-обрабатывается, подписка на него — задел на будущее). Затем в @BotFather:
-`/newapp` → Web App URL = `https://ochkisk.shop`.
+обрабатывается, подписка на него — задел на будущее). Снять вебхук —
+`dist/cli/webhook.js delete`. Затем в @BotFather: `/newapp` → Web App URL =
+`https://ochkisk.shop`.
 
 Наполнить каталог демо-товарами:
 
 ```bash
-cd /srv/shop/current/apps/api && sudo -u shop npm run db:seed
+cd /srv/shop/current/apps/api
+sudo -u shop node --env-file=/srv/shop/shared/api.env dist/cli/seed.js
 ```
+
+**Почему `node`, а не `npm run`.** В артефакте нет devDependencies, а значит нет
+и `tsx`, которым эти скрипты запускаются в разработке. Поэтому они лежат в
+`apps/api/src/cli/` и компилируются обычным `tsc` вместе с остальным API — на
+сервер приезжают готовые `dist/cli/seed.js` и `dist/cli/webhook.js`. `npm run
+db:seed` и `npm run bot:set-webhook` на сервере работать не будут: это dev-скрипты.
+
+`--env-file` обязателен: systemd читает `api.env` сам, а запущенный руками
+процесс — нет, и без токена бота `config.ts` откажется стартовать.
 
 ---
 
@@ -260,7 +279,7 @@ Vite проксирует `/api` на бэкенд, поэтому одного 
 
 Для приёма платежей нужен вебхук на публичный HTTPS API: поднимите второй
 туннель на порт 8080, пропишите его в `PUBLIC_API_URL` и выполните
-`npm run bot:set-webhook`.
+`npm run bot:set-webhook`. Локально это работает: в dev-окружении `tsx` есть.
 
 Проверить стенд без оплаты: закажите бесплатный товар «Стартовый набор» —
 он выдаётся сразу и вебхука не требует.
@@ -300,6 +319,8 @@ Vite проксирует `/api` на бэкенд, поэтому одного 
 | `artifact was built on Node X but this host runs Y` | мажоры CI и сервера разошлись; выровняйте `env.NODE_VERSION` и `NODE_MAJOR` и пересоберите |
 | `artifact was built for win32/x64 but this host is linux/x64` | артефакт собран локально не на Linux; собирайте в CI |
 | `Killed  npm ci` | старый артефакт без зависимостей на слабой машине; пересоберите на актуальном коммите |
+| `tsx: not found` при `npm run db:seed` на сервере | dev-скрипт в production-дереве; запускайте `node --env-file=/srv/shop/shared/api.env dist/cli/seed.js` |
+| `Cannot find module .../dist/cli/seed.js` | релиз собран до переноса скриптов в `src/cli`; задеплойте актуальный `main` |
 | `the SQLite driver did not load` | бинарник собран под другой ABI/платформу; проверьте `nodeMajor` и `platform` в `artifact.json` |
 | `deploy rolled back` | сайт уже вернулся на прошлый релиз; причина в `journalctl -u shop-api -n 50` |
 

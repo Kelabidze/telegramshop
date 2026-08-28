@@ -13,12 +13,9 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
-    "bot:set-webhook": "tsx --env-file-if-exists=.env scripts/webhook.ts set",
-    "bot:delete-webhook": "tsx --env-file-if-exists=.env scripts/webhook.ts delete"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx --env-file-if-exists=.env src/cli/seed.ts",
+    "bot:set-webhook": "tsx --env-file-if-exists=.env src/cli/webhook.ts set",
+    "bot:delete-webhook": "tsx --env-file-if-exists=.env src/cli/webhook.ts delete"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

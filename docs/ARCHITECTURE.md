@@ -33,14 +33,14 @@ packages/shared/src/         единый контракт (zod-схемы + т�
 
 apps/api/
   prisma/schema.prisma       модели БД
-  prisma/seed.ts             демо-каталог, идемпотентный
   prisma.config.ts           конфиг Prisma 7 CLI (адаптер + путь к базе)
-  scripts/webhook.ts         set/delete вебхука Telegram
   src/
     config.ts                разбор env через zod + проверки безопасности прода
     db.ts                    единственный PrismaClient
     errors.ts                AppError и хелперы (notFound, validationError…)
     server.ts                сборка Fastify: CORS, rate limit, обработка ошибок
+    cli/seed.ts              демо-каталог, идемпотентный
+    cli/webhook.ts           set/delete вебхука Telegram
     plugins/auth.ts          проверка initData → Viewer (requireViewer/requireAdmin)
     routes/catalog.ts        GET /api/categories, /api/products, /api/products/:slug
     routes/orders.ts         GET|POST /api/orders, /api/me, /api/orders/:id/cancel
@@ -268,7 +268,8 @@ Prisma-enum: так схема одинаково работает на SQLite �
 | Переменные окружения               | `config.ts`, `apps/api/.env.example`, `deploy/setup-server.sh`           |
 | Деплой, Caddy, systemd             | `deploy/*`, `.github/workflows/deploy.yml`, `docs/DEPLOYMENT.md`         |
 | Состав артефакта для сервера       | `deploy/pack-artifact.mjs`                                              |
-| Демо-данные                        | `apps/api/prisma/seed.ts`                                               |
+| Демо-данные                        | `apps/api/src/cli/seed.ts`                                              |
+| Обслуживающие команды              | `apps/api/src/cli/*.ts` (компилируются в `dist/cli/*.js`)                |
 
 ---
 
@@ -288,6 +289,7 @@ Prisma-enum: так схема одинаково работает на SQLite �
 | Релизы + симлинк `current`           | сломанная сборка не трогает работающий сайт, откат мгновенный     |
 | Сборка в CI, на сервер — артефакт    | VPS слабый: `tsc`+`vite` там грозят OOM. Runner бесплатный        |
 | `node_modules` едут в артефакте      | `npm ci` на VPS убивал OOM killer (~13.8k файлов). Взамен артефакт привязан к ОС/арх/ABI Node — `deploy.sh` проверяет это жёстко |
+| Обслуживающие скрипты в `src/cli/`   | компилируются `tsc` вместе с API, поэтому на сервере запускаются голым `node`; `tsx` — devDependency и в артефакт не попадает |
 
 ---
 
@@ -295,7 +297,7 @@ Prisma-enum: так схема одинаково работает на SQLite �
 
 Известные пробелы (актуально на 2026-08-23):
 
-- Админки нет: товары и ключи заливаются через `prisma/seed.ts` или Studio.
+- Админки нет: товары и ключи заливаются через `src/cli/seed.ts` или Studio.
 - Загрузки изображений нет — `imageUrl` заполняется вручную.
 - Возврат Stars (`refundStarPayment`) обрабатывается только на входящем
   событии; инициировать возврат из интерфейса нельзя.

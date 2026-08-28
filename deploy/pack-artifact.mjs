@@ -8,14 +8,17 @@
  * the OOM killer stopping the running site. Instead the build happens on a
  * GitHub runner and the server receives only what it cannot produce itself.
  *
- * What goes in (~1.5 MB gzipped):
+ * What goes in (~100 MB gzipped):
  *   - compiled API (apps/api/dist) and Mini App (apps/miniapp/dist)
  *   - compiled shared contract (packages/shared/dist)
- *   - manifests + package-lock.json, so the server can `npm ci --omit=dev`
+ *   - production node_modules, pre-installed by the runner (see PROD_DEPS_DIR)
+ *   - manifests + package-lock.json, for reference and for the Prisma CLI
  *   - prisma schema/config, so the server can apply the schema
  *
- * What stays out: node_modules (installed on the server so native binaries
- * match its Node ABI), sources, tests, .map files, .d.ts files.
+ * What stays out: sources, tests, .map and .d.ts files. Maintenance entry
+ * points (seed, webhook) are NOT shipped as .ts: they live in apps/api/src/cli
+ * and arrive already compiled inside dist/, because tsx is a devDependency and
+ * is absent from the production tree.
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -47,6 +50,11 @@ const stageDir = path.join(repoRoot, 'build', 'artifact-stage');
 /** Build outputs that must exist, or the artifact would be useless. */
 const REQUIRED_BUILD_OUTPUTS = [
   'apps/api/dist/server.js',
+  // Maintenance entry points. Listed explicitly because nothing imports them:
+  // if they ever fall out of the tsconfig `include`, tsc stays green and the
+  // breakage only surfaces on the server as "Cannot find module".
+  'apps/api/dist/cli/seed.js',
+  'apps/api/dist/cli/webhook.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',
 ];
@@ -64,9 +72,7 @@ const INCLUDE = [
   'apps/api/package.json',
   'apps/api/dist',
   'apps/api/prisma/schema.prisma',
-  'apps/api/prisma/seed.ts',
   'apps/api/prisma.config.ts',
-  'apps/api/scripts/webhook.ts',
   'apps/miniapp/package.json',
   'apps/miniapp/dist',
 ];

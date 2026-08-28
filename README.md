@@ -152,8 +152,8 @@ GitHub Actions, эксплуатация, откат и бэкап.
 
 Коротко: `ochkisk.shop` → `176.119.156.77`, Caddy отдаёт статику и проксирует
 `/api`, релизы переключаются симлинком атомарно. **Сборка идёт на GitHub
-Actions** — сервер получает готовый архив ~0.2 МБ и ничего не компилирует,
-поэтому деплой не грузит слабый VPS.
+Workflows** — сервер получает готовый архив (~100 МБ, вместе с production
+`node_modules`) и ничего не компилирует, поэтому деплой не грузит слабый VPS.
 
 ```bash
 # один раз на сервере
@@ -161,6 +161,15 @@ curl -fsSL https://raw.githubusercontent.com/Kelabidze/telegramshop/main/deploy/
 sudo nano /srv/shop/shared/api.env        # вписать TELEGRAM_BOT_TOKEN
 
 # дальше деплой сам: push в main -> CI собирает -> артефакт уезжает на сервер
+```
+
+Обслуживающие команды **на сервере** запускаются через `node`, а не `npm run`:
+в production-дереве нет `tsx`, поэтому сид и вебхук приезжают скомпилированными.
+
+```bash
+cd /srv/shop/current/apps/api
+sudo -u shop node --env-file=/srv/shop/shared/api.env dist/cli/seed.js
+sudo -u shop node --env-file=/srv/shop/shared/api.env dist/cli/webhook.js set
 ```
 
 Собрать и отправить артефакт вручную:
@@ -184,6 +193,11 @@ npm run pack             # артефакт для сервера (после bu
 npm run db:studio        # GUI для базы
 npm run db:seed          # демо-данные (идемпотентно)
 ```
+
+Скрипты `db:seed`, `bot:set-webhook` и `bot:delete-webhook` работают через `tsx`
+и предназначены для разработки. Их исходники — `apps/api/src/cli/*.ts`; в
+production те же команды запускаются как `node dist/cli/seed.js` и
+`node dist/cli/webhook.js set` (см. `docs/DEPLOYMENT.md`).
 
 ## Как устроена безопасность
 

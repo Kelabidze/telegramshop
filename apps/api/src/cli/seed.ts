@@ -2,18 +2,18 @@
  * Seeds a demo catalog of digital products.
  * Idempotent: re-running updates existing rows instead of duplicating them.
  *
- *   npm run db:seed -w @shop/api
+ *   npm run db:seed                                  # dev, through tsx
+ *   node --env-file=<api.env> dist/cli/seed.js       # production
+ *
+ * Why it lives under src/ instead of prisma/: `tsc` compiles everything here,
+ * so the production server gets a plain .js entry point. tsx is a
+ * devDependency and is absent from the deployed artifact.
  */
 import { randomBytes } from 'node:crypto';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
-import { PrismaClient } from '../src/generated/prisma/client.ts';
-import { config } from '../src/config.ts';
-
-const adapter = new PrismaBetterSqlite3(
-  { url: config.databaseUrl },
-  { timestampFormat: 'iso8601' },
-);
-const prisma = new PrismaClient({ adapter });
+import { existsSync } from 'node:fs';
+import type { FulfillmentKind } from '@shop/shared';
+import { config } from '../config.js';
+import { disconnectDb, prisma } from '../db.js';
 
 /** Readable fake license key, e.g. "SHOP-4F2A-9C1D-77B0". */
 function fakeLicenseKey(prefix: string): string {
@@ -27,8 +27,34 @@ const categories = [
   { slug: 'tools', title: 'Инструменты', emoji: '🛠', sortOrder: 3 },
 ];
 
-/** Prices are in whole Stars (XTR has no minor units). */
-const products = [
+interface SeedProductBase {
+  slug: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  /** Prices are in whole Stars (XTR has no minor units). */
+  amountMinor: number;
+  compareAtMinor: number | null;
+  categorySlug: string;
+  sortOrder: number;
+}
+
+/**
+ * Stock is rows in LicenseKey, so a keyed product declares how many keys to
+ * keep unclaimed; the others carry the payload they hand out. Splitting the two
+ * shapes lets the compiler — rather than a cast — guarantee that a keyed
+ * product never gets a staticPayload and vice versa.
+ */
+type SeedProduct = SeedProductBase &
+  (
+    | { fulfillmentKind: 'LICENSE_KEY'; keyPrefix: string; keyCount: number }
+    | {
+        fulfillmentKind: Exclude<FulfillmentKind, 'LICENSE_KEY'>;
+        staticPayload: string;
+      }
+  );
+
+const products: SeedProduct[] = [
   {
     slug: 'notion-dashboard',
     title: 'Notion-дашборд',
@@ -39,7 +65,7 @@ const products = [
     amountMinor: 150,
     compareAtMinor: 250,
     categorySlug: 'templates',
-    fulfillmentKind: 'LICENSE_KEY' as const,
+    fulfillmentKind: 'LICENSE_KEY',
     keyPrefix: 'NOTION',
     keyCount: 25,
     sortOrder: 1,
@@ -54,7 +80,7 @@ const products = [
     amountMinor: 300,
     compareAtMinor: null,
     categorySlug: 'templates',
-    fulfillmentKind: 'LICENSE_KEY' as const,
+    fulfillmentKind: 'LICENSE_KEY',
     keyPrefix: 'FIGMA',
     keyCount: 10,
     sortOrder: 2,
@@ -69,7 +95,7 @@ const products = [
     amountMinor: 500,
     compareAtMinor: 800,
     categorySlug: 'courses',
-    fulfillmentKind: 'LINK' as const,
+    fulfillmentKind: 'LINK',
     staticPayload: 'https://example.com/courses/telegram-bots?access=demo',
     sortOrder: 3,
   },
@@ -83,7 +109,7 @@ const products = [
     amountMinor: 100,
     compareAtMinor: null,
     categorySlug: 'tools',
-    fulfillmentKind: 'FILE' as const,
+    fulfillmentKind: 'FILE',
     staticPayload: 'https://example.com/files/seo-checklist.pdf',
     sortOrder: 4,
   },
@@ -97,13 +123,58 @@ const products = [
     amountMinor: 0,
     compareAtMinor: null,
     categorySlug: 'tools',
-    fulfillmentKind: 'LINK' as const,
+    fulfillmentKind: 'LINK',
     staticPayload: 'https://example.com/files/starter-pack.zip',
     sortOrder: 5,
   },
 ];
 
+/**
+ * Refuse to seed a database that does not exist yet.
+ *
+ * Without this check, forgetting the env file in production is silent:
+ * DATABASE_URL falls back to `file:./prisma/dev.db`, better-sqlite3 happily
+ * creates that file inside the release directory, the script reports success —
+ * and the live catalog stays empty.
+ */
+function requireExistingDatabase(): void {
+  if (config.databaseUrl === ':memory:') return;
+  if (existsSync(config.databaseUrl)) return;
+
+  console.error(
+    `Database file not found: ${config.databaseUrl}\n` +
+      '  dev:        run "npm run db:push" first to create it from the schema\n' +
+      '  production: point at the real database explicitly, e.g.\n' +
+      '    node --env-file=/srv/shop/shared/api.env dist/cli/seed.js',
+  );
+  process.exit(1);
+}
+
+/** Tops the product up to `keyCount` unclaimed keys, never removing any. */
+async function topUpLicenseKeys(
+  productId: string,
+  slug: string,
+  keyPrefix: string,
+  keyCount: number,
+): Promise<void> {
+  const existing = await prisma.licenseKey.count({
+    where: { productId, claimedAt: null },
+  });
+  const missing = keyCount - existing;
+  if (missing <= 0) return;
+
+  // `secret` is unique per product, so retry on the rare collision.
+  const secrets = new Set<string>();
+  while (secrets.size < missing) secrets.add(fakeLicenseKey(keyPrefix));
+
+  await prisma.licenseKey.createMany({
+    data: [...secrets].map((secret) => ({ productId, secret })),
+  });
+  console.log(`  ${slug}: +${missing} license keys`);
+}
+
 async function main() {
+  requireExistingDatabase();
   console.log(`Seeding database at ${config.databaseUrl}`);
 
   const categoryIdBySlug = new Map<string, string>();
@@ -118,23 +189,21 @@ async function main() {
   console.log(`  categories: ${categories.length}`);
 
   for (const product of products) {
-    const {
-      categorySlug,
-      keyPrefix,
-      keyCount,
-      staticPayload,
-      ...rest
-    } = product as typeof product & {
-      keyPrefix?: string;
-      keyCount?: number;
-      staticPayload?: string;
-    };
-
     const data = {
-      ...rest,
+      slug: product.slug,
+      title: product.title,
+      subtitle: product.subtitle,
+      description: product.description,
+      amountMinor: product.amountMinor,
+      compareAtMinor: product.compareAtMinor,
       currency: 'XTR',
-      categoryId: categoryIdBySlug.get(categorySlug) ?? null,
-      staticPayload: staticPayload ?? null,
+      fulfillmentKind: product.fulfillmentKind,
+      sortOrder: product.sortOrder,
+      categoryId: categoryIdBySlug.get(product.categorySlug) ?? null,
+      staticPayload:
+        product.fulfillmentKind === 'LICENSE_KEY'
+          ? null
+          : product.staticPayload,
       isActive: true,
     };
 
@@ -144,20 +213,13 @@ async function main() {
       create: data,
     });
 
-    if (product.fulfillmentKind === 'LICENSE_KEY' && keyPrefix && keyCount) {
-      const existing = await prisma.licenseKey.count({
-        where: { productId: row.id, claimedAt: null },
-      });
-      const missing = keyCount - existing;
-      if (missing > 0) {
-        // `secret` is unique per product, so retry on the rare collision.
-        const secrets = new Set<string>();
-        while (secrets.size < missing) secrets.add(fakeLicenseKey(keyPrefix));
-        await prisma.licenseKey.createMany({
-          data: [...secrets].map((secret) => ({ productId: row.id, secret })),
-        });
-        console.log(`  ${product.slug}: +${missing} license keys`);
-      }
+    if (product.fulfillmentKind === 'LICENSE_KEY') {
+      await topUpLicenseKeys(
+        row.id,
+        product.slug,
+        product.keyPrefix,
+        product.keyCount,
+      );
     }
   }
   console.log(`  products: ${products.length}`);
@@ -177,4 +239,4 @@ main()
     console.error(error);
     process.exit(1);
   })
-  .finally(() => void prisma.$disconnect());
+  .finally(() => void disconnectDb());

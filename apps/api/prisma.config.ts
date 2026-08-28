@@ -26,7 +26,12 @@ export default defineConfig({
   },
   migrations: {
     path: path.join('prisma', 'migrations'),
-    seed: 'tsx prisma/seed.ts',
+    /**
+     * Dev only: `prisma db seed` goes through tsx. In production the seed is a
+     * compiled entry point (`node dist/cli/seed.js`) because tsx is a
+     * devDependency and never ships in the deploy artifact.
+     */
+    seed: 'tsx src/cli/seed.ts',
   },
   adapter: async () =>
     new PrismaBetterSqlite3({ url: resolveDatabaseUrl() }),

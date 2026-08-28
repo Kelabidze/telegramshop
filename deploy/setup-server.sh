@@ -263,9 +263,18 @@ Next steps:
    sudo -u ${APP_USER} bash ${APP_ROOT}/repo/deploy/deploy.sh
 
 3. Register the Telegram webhook (after the first deploy):
-   cd ${APP_ROOT}/current/apps/api && sudo -u ${APP_USER} npm run bot:set-webhook
+   cd ${APP_ROOT}/current/apps/api
+   sudo -u ${APP_USER} node --env-file=${APP_ROOT}/shared/api.env dist/cli/webhook.js set
 
 4. In @BotFather: /newapp -> Web App URL = https://${DOMAIN}
+
+5. Optional: fill the catalog with demo products:
+   cd ${APP_ROOT}/current/apps/api
+   sudo -u ${APP_USER} node --env-file=${APP_ROOT}/shared/api.env dist/cli/seed.js
+
+Note: use plain "node", not "npm run". The artifact carries production
+dependencies only, so tsx (a devDependency) is absent; these entry points
+ship pre-compiled in dist/cli.
 
 Useful:
    systemctl status shop-api

@@ -1,14 +1,18 @@
 /**
  * Registers or removes the Telegram webhook.
  *
- *   npm run bot:set-webhook     -w @shop/api
- *   npm run bot:delete-webhook  -w @shop/api
+ *   npm run bot:set-webhook                                    # dev, through tsx
+ *   npm run bot:delete-webhook
+ *   node --env-file=<api.env> dist/cli/webhook.js set          # production
  *
  * PUBLIC_API_URL must be the public HTTPS origin of the API (e.g. a cloudflared
  * tunnel URL). Telegram only accepts HTTPS webhooks.
+ *
+ * Lives under src/ so `tsc` emits a plain .js entry point: tsx is a
+ * devDependency and never reaches the server.
  */
-import { config } from '../src/config.ts';
-import { requireBot } from '../src/telegram/bot.ts';
+import { config } from '../config.js';
+import { requireBot } from '../telegram/bot.js';
 
 const action = process.argv[2];
 
@@ -23,7 +27,7 @@ async function main() {
   }
 
   if (action !== 'set') {
-    console.error('Usage: webhook.ts <set|delete>');
+    console.error('Usage: webhook.js <set|delete>');
     process.exit(1);
   }
 
