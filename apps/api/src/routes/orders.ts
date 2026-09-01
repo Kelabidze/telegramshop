@@ -12,12 +12,6 @@ import {
 const idParamsSchema = z.object({ id: z.string().min(8).max(64) });
 
 export const orderRoutes: FastifyPluginAsync = async (app) => {
-  /** Current user. Also the cheapest way for the client to verify auth works. */
-  app.get('/me', async (request) => {
-    const viewer = await app.requireViewer(request);
-    return { viewer };
-  });
-
   app.get('/orders', async (request) => {
     const viewer = await app.requireViewer(request);
     return { orders: await listOrdersForViewer(viewer) };

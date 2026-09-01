@@ -30,8 +30,11 @@ const categories = [
   { slug: 'digital-cards', title: 'Цифровые карты', emoji: '💳', sortOrder: 6 },
 ];
 
-// Replace this placeholder with the owner's Telegram id before production seeding.
-const ADMIN_TELEGRAM_ID_PLACEHOLDER = 'REPLACE_WITH_YOUR_TELEGRAM_ID';
+// Administrators come from ADMIN_TELEGRAM_IDS, never from a constant in this
+// file: the previous version compared a placeholder against its own value, so
+// the branch was unreachable and enabling it required editing and rebuilding
+// the source. The env var is also what plugins/auth.ts enforces on every login,
+// so seeding from anywhere else would immediately drift.
 
 interface SeedProductBase {
   slug: string;
@@ -179,6 +182,36 @@ async function topUpLicenseKeys(
   console.log(`  ${slug}: +${missing} license keys`);
 }
 
+/**
+ * Creates a user row with role ADMIN for every id in ADMIN_TELEGRAM_IDS.
+ *
+ * Strictly a convenience: `plugins/auth.ts` promotes these ids on their first
+ * login anyway. Seeding them up front means an admin UI can list administrators
+ * before they have ever opened the app.
+ *
+ * `firstName` is a placeholder — the real name arrives from Telegram on first
+ * login and overwrites it. Existing rows keep their name, so re-running never
+ * clobbers real data.
+ */
+async function seedAdmins(): Promise<void> {
+  const adminIds = [...config.adminTelegramIds];
+  if (adminIds.length === 0) {
+    console.log(
+      '  no ADMIN_TELEGRAM_IDS configured; nobody will have admin access',
+    );
+    return;
+  }
+
+  for (const telegramId of adminIds) {
+    await prisma.user.upsert({
+      where: { telegramId },
+      update: { role: 'ADMIN', isAdmin: true },
+      create: { telegramId, firstName: 'Admin', role: 'ADMIN', isAdmin: true },
+    });
+  }
+  console.log(`  admins: ${adminIds.join(', ')}`);
+}
+
 async function main() {
   requireExistingDatabase();
   console.log(`Seeding database at ${config.databaseUrl}`);
@@ -230,31 +263,7 @@ async function main() {
   }
   console.log(`  products: ${products.length}`);
 
-  if (ADMIN_TELEGRAM_ID_PLACEHOLDER !== 'REPLACE_WITH_YOUR_TELEGRAM_ID') {
-    const admin = await prisma.user.upsert({
-      where: { telegramId: ADMIN_TELEGRAM_ID_PLACEHOLDER },
-      update: {
-        role: 'ADMIN',
-        isAdmin: true,
-      },
-      create: {
-        telegramId: ADMIN_TELEGRAM_ID_PLACEHOLDER,
-        firstName: 'Admin',
-        role: 'ADMIN',
-        isAdmin: true,
-      },
-    });
-    console.log(`  admin user: ${admin.telegramId}`);
-  } else {
-    console.log('  admin user skipped: replace ADMIN_TELEGRAM_ID_PLACEHOLDER');
-  }
-
-  const admins = [...config.adminTelegramIds];
-  if (admins.length > 0) {
-    console.log(`  admin telegram ids: ${admins.join(', ')}`);
-  } else {
-    console.log('  no ADMIN_TELEGRAM_IDS configured');
-  }
+  await seedAdmins();
 
   console.log('Done.');
 }

@@ -31,9 +31,42 @@ export const initDataSchema = z.object({
 });
 export type InitData = z.infer<typeof initDataSchema>;
 
-/** Roles persisted in User.role. Kept as strings for SQLite/Postgres parity. */
+/**
+ * Roles persisted in `User.role`. Strings rather than a Prisma enum, like every
+ * other "enum" in this schema, so SQLite and Postgres behave identically.
+ *
+ * `ADMIN` is granted exclusively by `ADMIN_TELEGRAM_IDS` and cannot be assigned
+ * from the database: see `plugins/auth.ts`.
+ */
 export const userRoleSchema = z.enum(['ADMIN', 'MANAGER', 'USER']);
 export type UserRole = z.infer<typeof userRoleSchema>;
+
+/**
+ * Every permission a MANAGER can be granted, as rows in `ManagerPermission`.
+ *
+ * A closed list rather than free-form strings: `requirePermission('EDIT_CATALGO')`
+ * would otherwise compile, deploy and then silently refuse every caller — a typo
+ * in a guard fails closed and looks exactly like a legitimate 403.
+ *
+ * Adding a permission means adding it here first; the guard and the seed both
+ * validate against this list.
+ */
+export const permissionSchema = z.enum([
+  /** Create, edit and hide products and categories. */
+  'EDIT_CATALOG',
+  /** Upload and revoke license keys (the stock of a digital shop). */
+  'MANAGE_KEYS',
+  /** Read other users' orders and resolve FAILED deliveries. */
+  'VIEW_ORDERS',
+  /** Refund a paid order. */
+  'REFUND_ORDERS',
+  /** Grant and revoke manager permissions. ADMIN-adjacent: hand out sparingly. */
+  'MANAGE_MANAGERS',
+]);
+export type Permission = z.infer<typeof permissionSchema>;
+
+/** All permissions, for iteration in seeds, admin UIs and tests. */
+export const PERMISSIONS = permissionSchema.options;
 
 /** The authenticated caller, as resolved by the API. */
 export const viewerSchema = z.object({
@@ -44,8 +77,16 @@ export const viewerSchema = z.object({
   username: z.string().nullable(),
   languageCode: z.string().nullable(),
   role: userRoleSchema,
-  permissions: z.array(z.string()),
-  /** Legacy response field; authorization uses role instead. */
+  /**
+   * Granted permissions. Unknown strings in the database are dropped rather
+   * than surfaced: a permission deleted from the code must stop granting
+   * access, not leak through as an unrecognised value.
+   */
+  permissions: z.array(permissionSchema),
+  /**
+   * Legacy mirror of `role === 'ADMIN'`, kept so existing clients keep working.
+   * No authorization check reads it.
+   */
   isAdmin: z.boolean(),
 });
 export type Viewer = z.infer<typeof viewerSchema>;
