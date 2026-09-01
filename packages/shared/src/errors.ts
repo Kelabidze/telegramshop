@@ -6,6 +6,8 @@ export const API_ERROR_CODES = [
   'FORBIDDEN',
   'NOT_FOUND',
   'VALIDATION_ERROR',
+  /** A unique constraint would be violated, e.g. a slug already in use. */
+  'CONFLICT',
   'OUT_OF_STOCK',
   'PRODUCT_UNAVAILABLE',
   'CURRENCY_MISMATCH',
@@ -32,6 +34,7 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   VALIDATION_ERROR: 400,
+  CONFLICT: 409,
   OUT_OF_STOCK: 409,
   PRODUCT_UNAVAILABLE: 409,
   CURRENCY_MISMATCH: 409,

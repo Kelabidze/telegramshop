@@ -28,6 +28,7 @@ packages/shared/src/         единый контракт (zod-схемы + т�
   catalog.ts                 Category, Product, ProductListItem, FulfillmentKind
   order.ts                   Order, OrderLine, статусы, входные схемы корзины
   telegram.ts                initData, TelegramUser, Viewer, UserRole, Permission
+  admin.ts                   входные схемы управления: категории, товары, персонал
   errors.ts                  API_ERROR_CODES + HTTP_STATUS_BY_CODE
   index.ts                   реэкспорт всего
 
@@ -45,8 +46,12 @@ apps/api/
     routes/catalog.ts        GET /api/categories, /api/products, /api/products/:slug
     routes/orders.ts         GET|POST /api/orders, /api/orders/:id/cancel
     routes/users.ts          GET /api/me — профиль, роль и права вызывающего
+    routes/admin.ts          управляющие роуты: каталог, товары, заказы, персонал
     routes/bot.ts            POST /telegram/webhook + обработчики grammY
     services/catalog.ts      чтение каталога, подсчёт остатка
+    services/admin-catalog.ts запись каталога: категории, товары, ключи
+    services/admin-orders.ts глобальный список заказов (VIEW_ORDERS)
+    services/managers.ts     назначение менеджеров и выдача прав
     services/orders.ts       создание заказа, выдача товара, идемпотентность
     payments/gateway.ts      абстракция оплаты (Stars | provider | none)
     telegram/bot.ts          единственный инстанс grammY Bot (или null)
@@ -233,7 +238,27 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | GET   | `/api/orders/:id`         | initData       | свой заказ, иначе 404            |
 | POST  | `/api/orders`             | initData       | создать заказ + инвойс (20/мин)  |
 | POST  | `/api/orders/:id/cancel`  | initData       | отменить `PENDING`               |
+| POST  | `/api/categories`         | `EDIT_CATALOG` | создать категорию                |
+| PUT   | `/api/categories/:id`     | `EDIT_CATALOG` | изменить категорию (частично)    |
+| DELETE| `/api/categories/:id`     | `EDIT_CATALOG` | удалить; товары остаются         |
+| POST  | `/api/products`           | `MANAGE_KEYS`  | создать товар + залить ключи     |
+| PUT   | `/api/products/:id`       | `MANAGE_KEYS`  | изменить товар, добавить ключи   |
+| DELETE| `/api/products/:id`       | `MANAGE_KEYS`  | деактивировать (не удалять)      |
+| GET   | `/api/orders/all`         | `VIEW_ORDERS`  | все заказы + покупатель          |
+| GET   | `/api/managers`           | `MANAGE_MANAGERS` | персонал и их права           |
+| POST  | `/api/managers`           | `MANAGE_MANAGERS` | назначить менеджера, задать права |
+| DELETE| `/api/managers/:telegramId` | `MANAGE_MANAGERS` | снять менеджера → `USER`    |
 | POST  | `/telegram/webhook`        | secret token   | апдейты Telegram                 |
+
+Права в колонке «Авторизация» — это `requirePermission(...)`; роль `ADMIN`
+проходит их все без явной выдачи. Управляющие роуты живут под тем же префиксом
+`/api`, что и публичные: отличает их pre-handler, а не участок URL — иначе
+отсутствие сегмента `/admin` можно было бы принять за признак публичности.
+
+`/api/orders/all` не конфликтует с `/api/orders/:id`: radix-роутер Fastify
+предпочитает статический сегмент параметрическому независимо от порядка
+регистрации. Это закреплено тестом — коллизия превратила бы чужой заказ
+покупателя в ошибку прав.
 
 Общий rate limit — 300 запросов в минуту; вебхук из него исключён.
 Формат ошибки всегда: `{ error: { code, message, details? } }`.
@@ -286,24 +311,31 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 9. Тесты
 
-47 тестов, чистый `node:test` через `tsx`, без Jest/Vitest.
+102 теста, чистый `node:test` через `tsx`, без Jest/Vitest.
 
 | Файл                                     | Что проверяет                                     |
 | ---------------------------------------- | ------------------------------------------------- |
 | `apps/api/src/telegram/init-data.test.ts` | 14 тестов подписи: подмена, `signature`, срок, порядок |
 | `apps/api/src/server.test.ts`             | 18 e2e через `app.inject()` на временной SQLite    |
 | `apps/api/src/plugins/auth.test.ts`       | 15 тестов авторизации: роли, права, инвариант `ADMIN_TELEGRAM_IDS` |
+| `apps/api/src/routes/admin.test.ts`       | 55 тестов управления: 30 на защиту каждого роута, остальные на CRUD |
 
 Покрыты именно инварианты: цена не берётся с клиента, чужой заказ → 404,
 перепродажа ключей невозможна, повтор платежа не выдаёт второй ключ,
 `staticPayload` не утекает в ответ, роль `ADMIN` понижается после удаления id
-из конфига, понижённый менеджер теряет доступ вместе с ролью.
+из конфига, понижённый менеджер теряет доступ вместе с ролью, частичный `PUT`
+не затирает поля, которых не было в запросе.
+
+В `admin.test.ts` защита проверяется таблицей: для **каждого** управляющего
+роута — 401 без подписи, 403 для покупателя и 403 для менеджера с *другим*
+правом. Так пропущенный pre-handler виден сразу; проверено мутацией — снятие
+одного guard'а роняет 3 теста.
 
 Тесты поднимают схему `prisma db push` в `os.tmpdir()` и удаляют её после
 прогона. `TELEGRAM_API_ROOT` указывает в `127.0.0.1:9`, поэтому сеть не
 задействуется. `auth.test.ts` поднимает **свой** инстанс Fastify с
-одноразовыми роутами под каждый guard: продакшен-роутов с RBAC пока нет, а
-поведение проверок нужно зафиксировать до того, как они появятся.
+одноразовыми роутами под каждый guard: так поведение проверок зафиксировано
+независимо от того, какие роуты их используют.
 
 ---
 
@@ -320,6 +352,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | Аутентификация, initData           | `plugins/auth.ts`, `telegram/init-data.ts`                              |
 | Роли и права (RBAC)                | `prisma/schema.prisma` → `shared/src/telegram.ts` → `plugins/auth.ts` → тест в `plugins/auth.test.ts` |
 | Новое право менеджера              | `permissionSchema` в `shared/src/telegram.ts`, затем `requirePermission('…')` на роуте |
+| Управляющий эндпоинт               | `shared/src/admin.ts` → `services/admin-*.ts` или `services/managers.ts` → `routes/admin.ts` → строка в таблице `ACCESS` (`routes/admin.test.ts`) |
 | Новый код ошибки                   | `shared/src/errors.ts` → `apps/api/src/errors.ts`                       |
 | Экран или UI                       | `screens/*.tsx`, `components/ui.tsx`, `styles.css`                       |
 | Корзина                            | `store/cart.ts`, `screens/CartScreen.tsx`                               |
@@ -349,6 +382,11 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | Права — закрытый zod-enum, не строки | опечатка в `requirePermission` иначе даёт вечный 403, неотличимый от честного отказа; проверка при регистрации роняет старт |
 | `ADMIN` игнорирует `requirePermission` | иначе каждое новое право нужно было бы выдавать администратору руками |
 | `ADMIN` только из `ADMIN_TELEGRAM_IDS`, в обе стороны | без понижения удаление id из env оставляло запись `ADMIN` в БД, и отзыв доступа требовал ручной правки базы |
+| Схемы `*Update` не `.partial()` от `*Input` | `.partial()` сохраняет `.default()`: `PUT {sortOrder}` подставил бы `description:''` и `isActive:true`, затерев описание и включив скрытый товар |
+| Guard'ы в `preHandler`, а не внутри обработчика | pre-handler нельзя забыть на середине функции, а незащищённый роут видно при чтении списка роутов |
+| Управляющие роуты под общим `/api` | защиту задаёт pre-handler; отдельный префикс `/admin` создавал бы иллюзию, что его отсутствие означает «публичный» |
+| `DELETE /api/products/:id` деактивирует | `OrderLine.product` — `onDelete: Restrict`: заказанный товар нельзя удалить физически, и не нужно — заказы должны читаться |
+| Ключи только добавляются, никогда не удаляются | выданный ключ — это оплаченная покупка, она обязана остаться в аудите |
 | `node:test` вместо Jest              | ноль зависимостей и конфигурации, тесты запускаются как есть      |
 | Релизы + симлинк `current`           | сломанная сборка не трогает работающий сайт, откат мгновенный     |
 | Хранится 2 релиза, чистка до распаковки | релиз с `node_modules` — ~400 МБ; при 5 релизах диск 9.7 ГБ забивался и `tar` падал на ENOSPC ещё до шага, который освобождал место |
@@ -360,12 +398,19 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 12. Что не сделано
 
-Известные пробелы (актуально на 2026-08-23):
+Известные пробелы (актуально на 2026-09-01):
 
-- Админки нет: товары и ключи заливаются через `src/cli/seed.ts` или Studio.
-- Загрузки изображений нет — `imageUrl` заполняется вручную.
-- Возврат Stars (`refundStarPayment`) обрабатывается только на входящем
-  событии; инициировать возврат из интерфейса нельзя.
-- Заказы в статусе `FAILED` никак не мониторятся, только видны в БД и в UI.
+- **Интерфейса админки нет.** API управления готово (раздел 6), но фронтенд его
+  не использует: товары и ключи по-прежнему заливаются через `src/cli/seed.ts`,
+  Studio или curl.
+- Право `REFUND_ORDERS` объявлено, но ни одним роутом не используется: возврат
+  Stars обрабатывается только на входящем событии, инициировать его из API
+  нельзя.
+- Пагинации в `/api/orders/all` нет — только `limit` до 200 и фильтры.
+- Ключи можно добавить, но не отозвать: удаление невыданного ключа из склада
+  делается вручную.
+- Загрузки изображений нет — `imageUrl` заполняется ссылкой вручную.
+- Заказы в статусе `FAILED` никак не мониторятся: видны в БД, в UI покупателя и
+  в `/api/orders/all`, но никто о них не уведомляет.
 - Миграции Prisma не ведутся, используется `db push`.
 - Автобэкапов SQLite нет.

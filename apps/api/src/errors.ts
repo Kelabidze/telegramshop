@@ -34,5 +34,8 @@ export const forbidden = (message = 'Access denied.') =>
 export const notFound = (message = 'Resource not found.') =>
   new AppError('NOT_FOUND', message);
 
+export const conflict = (message: string, details?: unknown) =>
+  new AppError('CONFLICT', message, details);
+
 export const validationError = (message: string, details?: unknown) =>
   new AppError('VALIDATION_ERROR', message, details);

@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { disconnectDb, prisma } from './db.js';
 import { AppError } from './errors.js';
 import { authPlugin } from './plugins/auth.js';
+import { adminRoutes } from './routes/admin.js';
 import { catalogRoutes } from './routes/catalog.js';
 import { orderRoutes } from './routes/orders.js';
 import { botRoutes } from './routes/bot.js';
@@ -125,6 +126,10 @@ export async function buildServer() {
   await app.register(catalogRoutes, { prefix: '/api' });
   await app.register(orderRoutes, { prefix: '/api' });
   await app.register(userRoutes, { prefix: '/api' });
+  // Management endpoints. Same `/api` prefix as the public ones: they are told
+  // apart by their pre-handlers, not by the URL, so no path can be mistaken for
+  // public just because it lacks an `/admin` segment.
+  await app.register(adminRoutes, { prefix: '/api' });
   await app.register(botRoutes);
 
   return app;
