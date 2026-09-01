@@ -31,6 +31,10 @@ export const initDataSchema = z.object({
 });
 export type InitData = z.infer<typeof initDataSchema>;
 
+/** Roles persisted in User.role. Kept as strings for SQLite/Postgres parity. */
+export const userRoleSchema = z.enum(['ADMIN', 'MANAGER', 'USER']);
+export type UserRole = z.infer<typeof userRoleSchema>;
+
 /** The authenticated caller, as resolved by the API. */
 export const viewerSchema = z.object({
   id: z.string(),
@@ -39,6 +43,9 @@ export const viewerSchema = z.object({
   lastName: z.string().nullable(),
   username: z.string().nullable(),
   languageCode: z.string().nullable(),
+  role: userRoleSchema,
+  permissions: z.array(z.string()),
+  /** Legacy response field; authorization uses role instead. */
   isAdmin: z.boolean(),
 });
 export type Viewer = z.infer<typeof viewerSchema>;

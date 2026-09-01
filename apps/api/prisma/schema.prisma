@@ -31,13 +31,33 @@ model User {
   username     String?
   languageCode String?
   isPremium    Boolean  @default(false)
+  /// ADMIN | MANAGER | USER. Stored as String for SQLite/Postgres parity.
+  role         String   @default("USER")
+  /// Kept temporarily for compatibility with the current auth implementation.
+  /// RBAC migrations will switch authorization checks to `role`.
   isAdmin      Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  orders Order[]
+  orders             Order[]
+  managerPermissions ManagerPermission[]
 
   @@index([createdAt])
+  @@index([role])
+}
+
+/// One explicit permission granted to a manager.
+/// Separate rows avoid SQLite-incompatible arrays and JSON permission blobs.
+model ManagerPermission {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission String
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, permission])
+  @@index([userId])
+  @@index([permission])
 }
 
 model Category {

@@ -27,7 +27,7 @@ packages/shared/src/         единый контракт (zod-схемы + т�
   money.ts                   валюты, minor units, formatMoney
   catalog.ts                 Category, Product, ProductListItem, FulfillmentKind
   order.ts                   Order, OrderLine, статусы, входные схемы корзины
-  telegram.ts                initData, TelegramUser, Viewer
+  telegram.ts                initData, TelegramUser, Viewer, UserRole
   errors.ts                  API_ERROR_CODES + HTTP_STATUS_BY_CODE
   index.ts                   реэкспорт всего
 
@@ -41,9 +41,10 @@ apps/api/
     server.ts                сборка Fastify: CORS, rate limit, обработка ошибок
     cli/seed.ts              демо-каталог, идемпотентный
     cli/webhook.ts           set/delete вебхука Telegram
-    plugins/auth.ts          проверка initData → Viewer (requireViewer/requireAdmin)
+    plugins/auth.ts          проверка initData → Viewer; RBAC: requireRole/requirePermission
     routes/catalog.ts        GET /api/categories, /api/products, /api/products/:slug
     routes/orders.ts         GET|POST /api/orders, /api/me, /api/orders/:id/cancel
+    routes/users.ts          GET /api/users/me — профиль, роль и права вызывающего
     routes/bot.ts            POST /telegram/webhook + обработчики grammY
     services/catalog.ts      чтение каталога, подсчёт остатка
     services/orders.ts       создание заказа, выдача товара, идемпотентность
@@ -126,12 +127,33 @@ Mini App                     API                          Telegram
 - Сравнение хешей — `timingSafeEqual`, подпись проверяется **до** доверия
   любому полю, включая `auth_date`.
 - `isAdmin` вычисляется из `ADMIN_TELEGRAM_IDS` при каждом входе, поэтому
-  права выдаются и отзываются без правки БД.
+  права выдаются и отзываются без правки БД. Оно осталось только в ответе для
+  совместимости: **проверки доступа читают `role`**.
+- Роль и права приходят из БД тем же запросом, что и upsert пользователя,
+  так что `Viewer` всегда содержит актуальные `role` и `permissions`.
+- Telegram id из `ADMIN_TELEGRAM_IDS` поднимает роль до `ADMIN` при входе.
+  Это способ выдать первого администратора, не открывая базу.
 - Dev-обход: заголовок `x-dev-telegram-id` работает только при
   `ALLOW_DEV_AUTH=true`, и `config.ts` запрещает этот флаг в production.
 
 Каталог публичный (`/api/categories`, `/api/products`) — просмотр не требует
 подписи. Всё, что связано с заказами, требует `requireViewer`.
+
+### RBAC
+
+```
+app.get('/admin/x', { preHandler: app.requireRole('ADMIN') },        handler)
+app.get('/manage/y', { preHandler: app.requirePermission('EDIT_CATALOG') }, handler)
+```
+
+- `requireRole(...roles)` пропускает вызывающего, если его роль есть в списке.
+- `requirePermission(permission)` требует строку из `ManagerPermission`.
+  `ADMIN` проходит всегда — иначе администратору нужно было бы выдавать
+  каждое право поимённо, и добавление нового права ломало бы доступ.
+- `requireAdmin` — это `requireRole('ADMIN')`, оставленный для существующих
+  вызовов.
+- Оба возвращают `Viewer`, поэтому в обработчике повторный `requireViewer`
+  берёт готовый `request.viewer` и не ходит в БД второй раз.
 
 ---
 
@@ -139,16 +161,18 @@ Mini App                     API                          Telegram
 
 ```
 User 1---* Order 1---* OrderLine *---1 Product *---1 Category
-                            |                |
-                            |                *--- LicenseKey (склад)
-                            *--- LicenseKey (выданные ключи)
+  |                         |                |
+  |                         |                *--- LicenseKey (склад)
+  |                         *--- LicenseKey (выданные ключи)
+  *---* ManagerPermission (по одной строке на право)
 
 ProcessedUpdate — только update_id + createdAt (защита от повторов)
 ```
 
 | Модель            | Зачем и что важно                                                |
 | ----------------- | ---------------------------------------------------------------- |
-| `User`            | `telegramId` — **String**: id не влезает в 2^53                   |
+| `User`            | `telegramId` — **String**: id не влезает в 2^53; `role` строкой   |
+| `ManagerPermission` | одно право = одна строка; уникальна в паре `userId` + `permission` |
 | `Category`        | slug, сортировка, emoji                                          |
 | `Product`         | цена в minor units, `fulfillmentKind`, `staticPayload` (секрет)   |
 | `LicenseKey`      | одна строка = одна единица склада; `claimedAt` + `orderLineId`    |
@@ -156,9 +180,12 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | `OrderLine`       | снапшоты `titleSnapshot`/`unitAmountMinor`; `deliveredPayload`     |
 | `ProcessedUpdate` | идемпотентность вебхуков                                          |
 
-Строковые «enum'ы» (`status`, `fulfillmentKind`, `currency`) специально не
-Prisma-enum: так схема одинаково работает на SQLite и Postgres, а валидация
+Строковые «enum'ы» (`status`, `fulfillmentKind`, `currency`, `role`) специально
+не Prisma-enum: так схема одинаково работает на SQLite и Postgres, а валидация
 живёт в zod.
+
+Роли: `USER` (по умолчанию, обычный покупатель), `MANAGER` (только явно
+выданные права) и `ADMIN` (полный доступ).
 
 Статусы заказа: `PENDING → PAID` (норма), `CANCELLED` (до оплаты),
 `REFUNDED` (возврат Stars), `FAILED` — **оплата прошла, выдать не удалось**;
@@ -175,6 +202,7 @@ Prisma-enum: так схема одинаково работает на SQLite �
 | GET   | `/api/products`           | нет            | каталог, фильтры `category`, `q` |
 | GET   | `/api/products/:slug`     | нет            | карточка товара                  |
 | GET   | `/api/me`                 | initData       | текущий пользователь             |
+| GET   | `/api/users/me`           | initData       | профиль, роль и права вызывающего |
 | GET   | `/api/orders`             | initData       | свои заказы (до 50)              |
 | GET   | `/api/orders/:id`         | initData       | свой заказ, иначе 404            |
 | POST  | `/api/orders`             | initData       | создать заказ + инвойс (20/мин)  |
@@ -260,6 +288,7 @@ Prisma-enum: так схема одинаково работает на SQLite �
 | Логика заказа / выдачи             | `services/orders.ts`, `routes/bot.ts`                                   |
 | Оплата, валюты, провайдер          | `payments/gateway.ts`, `shared/src/money.ts`, `config.ts`               |
 | Аутентификация, initData           | `plugins/auth.ts`, `telegram/init-data.ts`                              |
+| Роли и права (RBAC)                | `prisma/schema.prisma` → `shared/src/telegram.ts` → `plugins/auth.ts` → `routes/users.ts` |
 | Новый код ошибки                   | `shared/src/errors.ts` → `apps/api/src/errors.ts`                       |
 | Экран или UI                       | `screens/*.tsx`, `components/ui.tsx`, `styles.css`                       |
 | Корзина                            | `store/cart.ts`, `screens/CartScreen.tsx`                               |
@@ -285,6 +314,8 @@ Prisma-enum: так схема одинаково работает на SQLite �
 | SQLite через driver adapter          | нулевая настройка в dev; переход на Postgres = смена адаптера     |
 | `AppError` + `HTTP_STATUS_BY_CODE`   | статус нельзя забыть или указать неверно                         |
 | Статусы строками, а не Prisma enum   | одинаковое поведение SQLite и Postgres                           |
+| Права строками в `ManagerPermission` | SQLite не умеет массивы; JSON-блоб пришлось бы парсить в коде и нельзя индексировать |
+| `ADMIN` игнорирует `requirePermission` | иначе каждое новое право нужно было бы выдавать администратору руками |
 | `node:test` вместо Jest              | ноль зависимостей и конфигурации, тесты запускаются как есть      |
 | Релизы + симлинк `current`           | сломанная сборка не трогает работающий сайт, откат мгновенный     |
 | Хранится 2 релиза, чистка до распаковки | релиз с `node_modules` — ~400 МБ; при 5 релизах диск 9.7 ГБ забивался и `tar` падал на ENOSPC ещё до шага, который освобождал место |

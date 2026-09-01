@@ -25,7 +25,13 @@ const categories = [
   { slug: 'templates', title: 'Шаблоны', emoji: '🎨', sortOrder: 1 },
   { slug: 'courses', title: 'Курсы', emoji: '🎓', sortOrder: 2 },
   { slug: 'tools', title: 'Инструменты', emoji: '🛠', sortOrder: 3 },
+  { slug: 'ai', title: 'ИИ', emoji: '🤖', sortOrder: 4 },
+  { slug: 'appstore-cards', title: 'Карты AppStore', emoji: '', sortOrder: 5 },
+  { slug: 'digital-cards', title: 'Цифровые карты', emoji: '💳', sortOrder: 6 },
 ];
+
+// Replace this placeholder with the owner's Telegram id before production seeding.
+const ADMIN_TELEGRAM_ID_PLACEHOLDER = 'REPLACE_WITH_YOUR_TELEGRAM_ID';
 
 interface SeedProductBase {
   slug: string;
@@ -223,6 +229,25 @@ async function main() {
     }
   }
   console.log(`  products: ${products.length}`);
+
+  if (ADMIN_TELEGRAM_ID_PLACEHOLDER !== 'REPLACE_WITH_YOUR_TELEGRAM_ID') {
+    const admin = await prisma.user.upsert({
+      where: { telegramId: ADMIN_TELEGRAM_ID_PLACEHOLDER },
+      update: {
+        role: 'ADMIN',
+        isAdmin: true,
+      },
+      create: {
+        telegramId: ADMIN_TELEGRAM_ID_PLACEHOLDER,
+        firstName: 'Admin',
+        role: 'ADMIN',
+        isAdmin: true,
+      },
+    });
+    console.log(`  admin user: ${admin.telegramId}`);
+  } else {
+    console.log('  admin user skipped: replace ADMIN_TELEGRAM_ID_PLACEHOLDER');
+  }
 
   const admins = [...config.adminTelegramIds];
   if (admins.length > 0) {

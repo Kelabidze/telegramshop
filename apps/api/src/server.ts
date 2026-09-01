@@ -10,6 +10,7 @@ import { authPlugin } from './plugins/auth.js';
 import { catalogRoutes } from './routes/catalog.js';
 import { orderRoutes } from './routes/orders.js';
 import { botRoutes } from './routes/bot.js';
+import { userRoutes } from './routes/users.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -123,6 +124,7 @@ export async function buildServer() {
 
   await app.register(catalogRoutes, { prefix: '/api' });
   await app.register(orderRoutes, { prefix: '/api' });
+  await app.register(userRoutes, { prefix: '/api' });
   await app.register(botRoutes);
 
   return app;
