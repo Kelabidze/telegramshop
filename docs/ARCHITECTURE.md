@@ -62,8 +62,8 @@ apps/miniapp/src/
   main.tsx                   точка входа: тема, WebApp.ready, QueryClient
   App.tsx                    стек экранов + нижний TabBar
   api/client.ts              типизированный fetch-клиент, ApiError
-  screens/                   CatalogScreen, ProductScreen, CartScreen, OrdersScreen
-  components/ui.tsx          Price, Stepper, Spinner, ProductSkeletonGrid, EmptyState, ErrorState
+  screens/                   CatalogScreen (главная), ProductScreen, CartScreen, OrdersScreen
+  components/ui.tsx          Price, Stepper, Spinner, скелетоны, EmptyState, ErrorState
   store/cart.ts              Zustand-корзина с persist в localStorage
   telegram/webapp.ts         типизированная обёртка window.Telegram.WebApp
   telegram/buttons.ts        useMainButton, useBackButton
@@ -273,9 +273,19 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 - **Основное действие** экрана — нативная `MainButton` (`useMainButton`).
   Пока запрос в полёте, кнопка в состоянии `showProgress(false)` — это и есть
   защита от двойного оформления заказа.
-- **Серверные данные** — TanStack Query, ключи `['products', category]`,
+- **Серверные данные** — TanStack Query, ключи `['me']`, `['products', category]`,
   `['product', slug]`, `['categories']`, `['orders']`. 4xx не ретраятся.
   Экран заказов сам опрашивает сервер каждые 3 сек, пока есть `PENDING`.
+- **Главный экран грузит профиль и категории параллельно** через `useQueries`
+  (`CatalogScreen.tsx`). Последовательные запросы сделали бы страницу медленнее
+  на сумму обоих: приветствию нужен `/api/me`, сетке — `/api/categories`, и
+  друг от друга они не зависят.
+- **Профиль не обязателен для просмотра.** Запрос `['me']` идёт с `retry: false`
+  и при неудаче даёт нейтральное «Привет» вместо ошибки: вне Telegram это
+  гарантированный 401, а каталог публичный и должен работать всё равно.
+- **Скелетоны совпадают по размеру с контентом**, который заменяют
+  (`GreetingSkeleton`, `CategorySkeletonGrid`). Иначе шапка прыгает в момент
+  прихода имени — именно это выдаёт в Mini App веб-страницу.
 - **Клиентское состояние** — Zustand + persist (`shop-cart-v1`). Цена в
   корзине только для показа; сервер всё пересчитывает.
 - **Тема** — `themeParams` Telegram проецируются в CSS-переменные

@@ -1,12 +1,27 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { ProductListItem } from '@shop/shared';
+import { useQueries, useQuery } from '@tanstack/react-query';
+import type { Category, ProductListItem, Viewer } from '@shop/shared';
 import { isPurchasable } from '@shop/shared';
 import { api } from '../api/client.ts';
-import { Price, ProductSkeletonGrid, EmptyState, ErrorState } from '../components/ui.tsx';
+import {
+  CategorySkeletonGrid,
+  EmptyState,
+  ErrorState,
+  GreetingSkeleton,
+  Price,
+  ProductSkeletonGrid,
+} from '../components/ui.tsx';
 import { haptic } from '../telegram/webapp.ts';
 
-/** Catalog: category filter + product grid. */
+/**
+ * Home screen: greeting, category grid, product grid.
+ *
+ * The viewer and the categories are fetched in parallel through `useQueries`.
+ * Chaining them would make the page as slow as the sum of both requests, and
+ * neither depends on the other: the greeting needs the profile, the grid needs
+ * the categories. Products are a separate query because they re-run whenever
+ * the selected category changes, while the first two are fetched once.
+ */
 export function CatalogScreen({
   onOpenProduct,
 }: {
@@ -14,10 +29,23 @@ export function CatalogScreen({
 }) {
   const [category, setCategory] = useState<string | null>(null);
 
-  const categoriesQuery = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => api.listCategories(),
-    staleTime: 5 * 60 * 1000,
+  const [viewerQuery, categoriesQuery] = useQueries({
+    queries: [
+      {
+        queryKey: ['me'],
+        queryFn: () => api.getViewer(),
+        // The profile changes far less often than stock does.
+        staleTime: 5 * 60 * 1000,
+        // Outside Telegram (and without dev auth) this is a guaranteed 401.
+        // Retrying would only delay the fallback greeting.
+        retry: false,
+      },
+      {
+        queryKey: ['categories'],
+        queryFn: () => api.listCategories(),
+        staleTime: 5 * 60 * 1000,
+      },
+    ],
   });
 
   const productsQuery = useQuery({
@@ -25,44 +53,48 @@ export function CatalogScreen({
     queryFn: () => api.listProducts(category ? { category } : {}),
   });
 
-  const chips = useMemo(
-    () => [
-      { slug: null as string | null, title: 'Все', emoji: null },
-      ...(categoriesQuery.data ?? []).map((c) => ({
-        slug: c.slug,
-        title: c.title,
-        emoji: c.emoji,
-      })),
-    ],
-    [categoriesQuery.data],
+  const selectedTitle = useMemo(
+    () =>
+      categoriesQuery.data?.find((c) => c.slug === category)?.title ?? null,
+    [categoriesQuery.data, category],
   );
 
   return (
     <div className="page">
-      <header style={{ marginBottom: 16 }}>
-        <h1 className="title">Магазин</h1>
-        <p className="subtitle">Цифровые товары с моментальной выдачей</p>
-      </header>
+      {viewerQuery.isPending ? (
+        <GreetingSkeleton />
+      ) : (
+        <Greeting viewer={viewerQuery.data ?? null} />
+      )}
 
-      {chips.length > 1 ? (
-        <div className="chips" style={{ marginBottom: 16 }}>
-          {chips.map((chip) => (
-            <button
-              key={chip.slug ?? 'all'}
-              type="button"
-              className="chip"
-              aria-pressed={category === chip.slug}
-              onClick={() => {
-                haptic('selection');
-                setCategory(chip.slug);
-              }}
-            >
-              {chip.emoji ? `${chip.emoji} ` : ''}
-              {chip.title}
-            </button>
-          ))}
-        </div>
+      <h2 className="section-title" style={{ marginTop: 0 }}>
+        Каталог
+      </h2>
+
+      {categoriesQuery.isPending ? <CategorySkeletonGrid /> : null}
+
+      {categoriesQuery.isError ? (
+        <ErrorState
+          message={(categoriesQuery.error as Error).message}
+          onRetry={() => void categoriesQuery.refetch()}
+        />
       ) : null}
+
+      {categoriesQuery.data && categoriesQuery.data.length > 0 ? (
+        <CategoryGrid
+          categories={categoriesQuery.data}
+          selected={category}
+          onSelect={(slug) => {
+            haptic('selection');
+            // Tapping the active tile clears the filter: without this the only
+            // way back to "everything" would be the All tile, which is easy to
+            // miss once the grid scrolls.
+            setCategory((prev) => (prev === slug ? null : slug));
+          }}
+        />
+      ) : null}
+
+      <h2 className="section-title">{selectedTitle ?? 'Все товары'}</h2>
 
       {productsQuery.isPending ? <ProductSkeletonGrid /> : null}
 
@@ -95,6 +127,63 @@ export function CatalogScreen({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Greeting line.
+ *
+ * `viewer` is null when the profile request failed — outside Telegram, or with
+ * an expired signature. That is not an error worth showing: the catalog is
+ * public and browsing must keep working, so the name simply falls back to a
+ * neutral greeting.
+ */
+function Greeting({ viewer }: { viewer: Viewer | null }) {
+  const name = viewer?.firstName?.trim();
+  const initial = name ? [...name][0] : '👋';
+
+  return (
+    <header className="greeting">
+      <div className="greeting__avatar" aria-hidden="true">
+        {initial}
+      </div>
+      <div className="greeting__text">
+        <p className="greeting__hello">
+          {name ? `Привет, ${name}` : 'Привет'}
+        </p>
+        <p className="greeting__caption">Цифровые товары с моментальной выдачей</p>
+      </div>
+    </header>
+  );
+}
+
+function CategoryGrid({
+  categories,
+  selected,
+  onSelect,
+}: {
+  categories: Category[];
+  selected: string | null;
+  onSelect: (slug: string) => void;
+}) {
+  return (
+    <div className="category-grid">
+      {categories.map((category) => (
+        <button
+          key={category.id}
+          type="button"
+          className="category-card"
+          aria-pressed={selected === category.slug}
+          onClick={() => onSelect(category.slug)}
+        >
+          {/* Emoji is optional in the schema, so every tile needs a fallback. */}
+          <span className="category-card__icon" aria-hidden="true">
+            {category.emoji || '🗂'}
+          </span>
+          <span className="category-card__title">{category.title}</span>
+        </button>
+      ))}
     </div>
   );
 }

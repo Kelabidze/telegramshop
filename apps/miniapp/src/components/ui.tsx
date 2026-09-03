@@ -80,6 +80,36 @@ export function ProductSkeletonGrid() {
   );
 }
 
+/**
+ * Placeholder for the greeting line.
+ *
+ * Sized to the text it replaces so the header does not jump when the name
+ * arrives — layout shift right under the user's thumb is what makes a Mini App
+ * feel like a web page rather than a native screen.
+ */
+export function GreetingSkeleton() {
+  return (
+    <div className="greeting" aria-hidden="true">
+      <div className="skeleton greeting__avatar-skeleton" />
+      <div className="stack" style={{ gap: 6, flex: 1 }}>
+        <div className="skeleton skeleton--text" style={{ width: '55%' }} />
+        <div className="skeleton skeleton--text skeleton--text-sm" style={{ width: '35%' }} />
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder tiles matching the category grid layout. */
+export function CategorySkeletonGrid({ count = 6 }: { count?: number }) {
+  return (
+    <div className="category-grid" aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="skeleton skeleton--category" />
+      ))}
+    </div>
+  );
+}
+
 export function EmptyState({
   emoji,
   title,
