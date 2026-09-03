@@ -4,7 +4,12 @@ import { api } from '../api/client.ts';
 import { useCart } from '../store/cart.ts';
 import { useMainButton } from '../telegram/buttons.ts';
 import { haptic } from '../telegram/webapp.ts';
-import { Price, Spinner, ErrorState } from '../components/ui.tsx';
+import {
+  ClubTierNotice,
+  Price,
+  Spinner,
+  ErrorState,
+} from '../components/ui.tsx';
 
 const FULFILLMENT_LABEL: Record<string, string> = {
   LICENSE_KEY: 'Ключ активации придёт в чат сразу после оплаты',
@@ -14,9 +19,11 @@ const FULFILLMENT_LABEL: Record<string, string> = {
 
 export function ProductScreen({
   slug,
+  isSubscribedChannel,
   onGoToCart,
 }: {
   slug: string;
+  isSubscribedChannel: boolean;
   onGoToCart: () => void;
 }) {
   const query = useQuery({
@@ -127,6 +134,16 @@ export function ProductScreen({
       <p className="hint" style={{ marginTop: 16 }}>
         ⚡️ {FULFILLMENT_LABEL[product.fulfillmentKind] ?? ''}
       </p>
+
+      {/*
+        Sits directly above the native MainButton, which is the action on this
+        screen — the offer is only useful next to the decision it affects.
+        Members see nothing: they already have the rate, and a banner
+        congratulating them on every product page is noise.
+      */}
+      {!isSubscribedChannel ? (
+        <ClubTierNotice isSubscribedChannel={false} variant="product" />
+      ) : null}
     </div>
   );
 }

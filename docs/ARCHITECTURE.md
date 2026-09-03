@@ -25,6 +25,7 @@
 ```
 packages/shared/src/         единый контракт (zod-схемы + типы + чистые функции)
   money.ts                   валюты, minor units, formatMoney
+  pricing.ts                 клубный тариф: standardUnitMinor, cartTotals
   catalog.ts                 Category, Product, ProductListItem, FulfillmentKind
   order.ts                   Order, OrderLine, статусы, входные схемы корзины
   telegram.ts                initData, TelegramUser, Viewer, UserRole, Permission
@@ -60,10 +61,14 @@ apps/api/
 
 apps/miniapp/src/
   main.tsx                   точка входа: тема, WebApp.ready, QueryClient
-  App.tsx                    стек экранов + нижний TabBar
+  App.tsx                    стек экранов + выбор активной вкладки
   api/client.ts              типизированный fetch-клиент, ApiError
-  screens/                   CatalogScreen (главная), ProductScreen, CartScreen, OrdersScreen
-  components/ui.tsx          Price, Stepper, Spinner, скелетоны, EmptyState, ErrorState
+  api/useViewer.ts           единственный запрос ['me'] на всё приложение
+  screens/                   CatalogScreen (главная), ProductScreen, CartScreen,
+                             OrdersScreen, ProfileScreen
+  components/AppLayout.tsx   корневой каркас: шапка профиля + нижняя навигация
+  components/ui.tsx          Price, Stepper, Spinner, скелетоны, EmptyState,
+                             ErrorState, ClubTierNotice, ClubChannelButton
   store/cart.ts              Zustand-корзина с persist в localStorage
   telegram/webapp.ts         типизированная обёртка window.Telegram.WebApp
   telegram/buttons.ts        useMainButton, useBackButton
@@ -233,7 +238,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | GET   | `/api/categories`         | нет            | список категорий                 |
 | GET   | `/api/products`           | нет            | каталог, фильтры `category`, `q` |
 | GET   | `/api/products/:slug`     | нет            | карточка товара                  |
-| GET   | `/api/me`                 | initData       | профиль: имя, роль, права        |
+| GET   | `/api/me`                 | initData       | профиль: имя, роль, права, клубный статус |
 | GET   | `/api/orders`             | initData       | свои заказы (до 50)              |
 | GET   | `/api/orders/:id`         | initData       | свой заказ, иначе 404            |
 | POST  | `/api/orders`             | initData       | создать заказ + инвойс (20/мин)  |
@@ -267,31 +272,65 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 7. Frontend: как устроено
 
+- **Корневой каркас** — `AppLayout` (`components/AppLayout.tsx`): шапка профиля
+  сверху, нижняя панель навигации снизу, экран между ними. Обе панели живут в
+  обёртке, а не в экранах, поэтому рендерятся один раз и не перемонтируются при
+  навигации: перемонтирование панели теряет тап, который эту навигацию вызвал.
+  Шапка видна на основных экранах (Каталог, Корзина, Заказы) и скрыта на
+  вложенных (товар, профиль) — там работает `BackButton`.
 - **Навигация** — массив `View[]` в `App.tsx` (`push`/`pop`/`resetTo`), без
   react-router. Причина: Telegram BackButton должен точно повторять глубину
-  стека, а history API внутри WebView ведёт себя непредсказуемо.
+  стека, а history API внутри WebView ведёт себя непредсказуемо. Выбор вкладки
+  всегда делает `resetTo`, поэтому любая вкладка — валидный выход из профиля и
+  из карточки товара без отдельной ветки на экран.
+- **Активная вкладка** для вложенного экрана — родительская (`tabForView`):
+  товар подсвечивает «Каталог», профиль — ту вкладку, из которой открыт.
+  Неподсвеченная панель читается как «вы нигде».
 - **Основное действие** экрана — нативная `MainButton` (`useMainButton`).
   Пока запрос в полёте, кнопка в состоянии `showProgress(false)` — это и есть
   защита от двойного оформления заказа.
 - **Серверные данные** — TanStack Query, ключи `['me']`, `['products', category]`,
   `['product', slug]`, `['categories']`, `['orders']`. 4xx не ретраятся.
   Экран заказов сам опрашивает сервер каждые 3 сек, пока есть `PENDING`.
-- **Главный экран грузит профиль и категории параллельно** через `useQueries`
-  (`CatalogScreen.tsx`). Последовательные запросы сделали бы страницу медленнее
-  на сумму обоих: приветствию нужен `/api/me`, сетке — `/api/categories`, и
-  друг от друга они не зависят.
+- **Профиль загружается один раз на всё приложение** — хук `useViewer`
+  (`api/useViewer.ts`) с ключом `['me']`. Его читают шапка, карточка товара и
+  корзина: два независимых запроса возвращались бы в разное время, и клубный
+  статус в шапке мог бы расходиться с плашкой над кнопкой.
 - **Профиль не обязателен для просмотра.** Запрос `['me']` идёт с `retry: false`
   и при неудаче даёт нейтральное «Привет» вместо ошибки: вне Telegram это
   гарантированный 401, а каталог публичный и должен работать всё равно.
-- **Скелетоны совпадают по размеру с контентом**, который заменяют
-  (`GreetingSkeleton`, `CategorySkeletonGrid`). Иначе шапка прыгает в момент
-  прихода имени — именно это выдаёт в Mini App веб-страницу.
+  Отсутствие профиля означает просто «клубного тарифа нет».
+- **Скелетоны совпадают по размеру с контентом**, который заменяют (шапка
+  профиля, `CategorySkeletonGrid`). Иначе шапка прыгает в момент прихода имени —
+  именно это выдаёт в Mini App веб-страницу.
 - **Клиентское состояние** — Zustand + persist (`shop-cart-v1`). Цена в
   корзине только для показа; сервер всё пересчитывает.
 - **Тема** — `themeParams` Telegram проецируются в CSS-переменные
   (`--tg-bg-color` и т.д.), поэтому приложение выглядит родным в любой теме.
 - Вне Telegram приложение работает и показывает баннер: оплата недоступна,
   вход — только dev-режим.
+
+### Клубный тариф
+
+Значение цены в БД — это **клубный тариф** `P`: столько платит подписчик канала.
+Стандартная цена выводится как `L = round(P / 0.95)`.
+
+- Математика — `packages/shared/src/pricing.ts`, один модуль на оба конца:
+  `standardUnitMinor`, `effectiveUnitMinor`, `tierAdjustmentMinor`, `cartTotals`.
+- `L = P / 0.95`, а не `P × 1.05`: утрата тарифа стоит ~5.26%, не 5%.
+  Перевёрнутое направление занижает выгоду подписки и выглядит правдоподобно,
+  поэтому закреплено тестом.
+- Только целые числа: `amount × 10000 / 9500` вместо `amount / 0.95`.
+  Округление **на единицу**, а не на строку — сервер хранит `unitAmountMinor` и
+  умножает на количество.
+- Флаг `Viewer.isSubscribedChannel` приходит только с сервера. Проверка
+  `getChatMember` пока не подключена, сервер отдаёт `false` (`plugins/auth.ts`):
+  источник значения уже единственный, включение проверки меняет способ
+  вычисления, а не место.
+- В UI: витрина показывает цены штатно и одинаково для всех, без перечёркиваний
+  (сетка зачёркнутых чисел читается как распродажа, а тариф — постоянная
+  ставка). Плашки `ClubTierNotice` — на карточке товара над кнопкой действия и в
+  корзине; в корзине показаны оба состояния, на карточке — только приглашение.
 
 ---
 
@@ -314,27 +353,33 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | `ALLOW_DEV_AUTH`            | dev-обход подписи; **в prod вызывает падение старта**  |
 
 Фронтенд: `VITE_API_URL` (пусто = same-origin через прокси Vite),
-`VITE_API_PROXY_TARGET`, `VITE_DEV_TELEGRAM_ID` (вырезается из prod-бандла
-через `import.meta.env.DEV`).
+`VITE_API_PROXY_TARGET`, `VITE_CLUB_CHANNEL_URL` (пусто скрывает все точки
+перехода в канал), `VITE_DEV_TELEGRAM_ID` (вырезается из prod-бандла через
+`import.meta.env.DEV`).
 
 ---
 
 ## 9. Тесты
 
-102 теста, чистый `node:test` через `tsx`, без Jest/Vitest.
+113 тестов, чистый `node:test` через `tsx`, без Jest/Vitest.
 
 | Файл                                     | Что проверяет                                     |
 | ---------------------------------------- | ------------------------------------------------- |
 | `apps/api/src/telegram/init-data.test.ts` | 14 тестов подписи: подмена, `signature`, срок, порядок |
-| `apps/api/src/server.test.ts`             | 18 e2e через `app.inject()` на временной SQLite    |
+| `apps/api/src/server.test.ts`             | 19 e2e через `app.inject()` на временной SQLite    |
 | `apps/api/src/plugins/auth.test.ts`       | 15 тестов авторизации: роли, права, инвариант `ADMIN_TELEGRAM_IDS` |
 | `apps/api/src/routes/admin.test.ts`       | 55 тестов управления: 30 на защиту каждого роута, остальные на CRUD |
+| `apps/api/src/pricing.test.ts`            | 10 тестов клубного тарифа: направление `P / 0.95`, целые числа, округление на единицу |
 
 Покрыты именно инварианты: цена не берётся с клиента, чужой заказ → 404,
 перепродажа ключей невозможна, повтор платежа не выдаёт второй ключ,
 `staticPayload` не утекает в ответ, роль `ADMIN` понижается после удаления id
 из конфига, понижённый менеджер теряет доступ вместе с ролью, частичный `PUT`
 не затирает поля, которых не было в запросе.
+
+`pricing.test.ts` лежит в workspace API, потому что там запускается тест-раннер:
+добавлять `tsx` в `packages/shared` ради этих тестов — новая зависимость без
+выгоды. Проверяемый код общий, а списывать деньги по нему будет именно API.
 
 В `admin.test.ts` защита проверяется таблицей: для **каждого** управляющего
 роута — 401 без подписи, 403 для покупателя и 403 для менеджера с *другим*
@@ -365,6 +410,9 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | Управляющий эндпоинт               | `shared/src/admin.ts` → `services/admin-*.ts` или `services/managers.ts` → `routes/admin.ts` → строка в таблице `ACCESS` (`routes/admin.test.ts`) |
 | Новый код ошибки                   | `shared/src/errors.ts` → `apps/api/src/errors.ts`                       |
 | Экран или UI                       | `screens/*.tsx`, `components/ui.tsx`, `styles.css`                       |
+| Каркас, шапка, вкладки             | `components/AppLayout.tsx`, `App.tsx`, `styles.css`                      |
+| Клубный тариф, расчёт цены         | `packages/shared/src/pricing.ts` → `components/ui.tsx` → тест в `apps/api/src/pricing.test.ts` |
+| Клубный статус пользователя        | `shared/src/telegram.ts` (`isSubscribedChannel`) → `plugins/auth.ts` → `api/useViewer.ts` |
 | Корзина                            | `store/cart.ts`, `screens/CartScreen.tsx`                               |
 | Вызовы Telegram WebApp             | `telegram/webapp.ts`, `telegram/buttons.ts`                             |
 | Сообщения и команды бота           | `routes/bot.ts`                                                         |
@@ -408,8 +456,16 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 12. Что не сделано
 
-Известные пробелы (актуально на 2026-09-01):
+Известные пробелы (актуально на 2026-09-03):
 
+- **Проверка подписки на канал не подключена.** `Viewer.isSubscribedChannel`
+  всегда `false`: `getChatMember`, `CLUB_CHANNEL_ID` в env и inline-кнопка со
+  ссылкой на канал в боте — следующий шаг. До него клубный тариф виден в
+  интерфейсе как предложение, но никого не переводит на другую цену.
+- **Стандартная цена `L` пока не применяется к заказу.** `createOrder` считает
+  сумму по значению из БД (`P`) для всех. Включать `L` в UI и в `createOrder`
+  нужно **одной правкой**: если экран покажет `L`, а инвойс придёт на `P`,
+  пользователь увидит одну сумму и заплатит другую.
 - **Интерфейса админки нет.** API управления готово (раздел 6), но фронтенд его
   не использует: товары и ключи по-прежнему заливаются через `src/cli/seed.ts`,
   Studio или curl.

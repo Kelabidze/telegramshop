@@ -192,3 +192,32 @@ export function openInvoice(url: string): Promise<InvoiceStatus> {
     app.openInvoice(url, resolve);
   });
 }
+
+/**
+ * The club channel a membership is checked against.
+ *
+ * Configured, not hardcoded: the same bundle serves staging and production, and
+ * the id the API verifies against lives in its own env. An empty value means
+ * "not configured", and every entry point that would link there hides itself
+ * rather than opening a dead link.
+ */
+const CLUB_CHANNEL_URL = import.meta.env.VITE_CLUB_CHANNEL_URL ?? '';
+
+export const openChannel = {
+  isAvailable(): boolean {
+    return CLUB_CHANNEL_URL.length > 0;
+  },
+  /**
+   * `openTelegramLink` keeps the user inside Telegram; `window.open` is the
+   * browser fallback so the link still works outside the Mini App.
+   */
+  open(): void {
+    if (!CLUB_CHANNEL_URL) return;
+    const app = getWebApp();
+    if (app?.isVersionAtLeast('6.1')) {
+      app.openTelegramLink(CLUB_CHANNEL_URL);
+      return;
+    }
+    window.open(CLUB_CHANNEL_URL, '_blank', 'noopener,noreferrer');
+  },
+};

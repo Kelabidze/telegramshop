@@ -183,6 +183,18 @@ describe('authentication', () => {
     assert.equal(viewer.telegramId, TG_ID);
     assert.equal(viewer.isAdmin, false, 'users must not be admin by default');
   });
+
+  it('reports channel membership as false until the check lands', async () => {
+    // The getChatMember verification is not wired in yet; the flag must come
+    // from the server regardless, so the client is never the one deciding it.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: authHeader(),
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().viewer.isSubscribedChannel, false);
+  });
 });
 
 describe('orders', () => {

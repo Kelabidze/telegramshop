@@ -1,26 +1,27 @@
-import { useMemo, useState } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
-import type { Category, ProductListItem, Viewer } from '@shop/shared';
+﻿import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { Category, ProductListItem } from '@shop/shared';
 import { isPurchasable } from '@shop/shared';
 import { api } from '../api/client.ts';
 import {
   CategorySkeletonGrid,
   EmptyState,
   ErrorState,
-  GreetingSkeleton,
   Price,
   ProductSkeletonGrid,
 } from '../components/ui.tsx';
 import { haptic } from '../telegram/webapp.ts';
 
 /**
- * Home screen: greeting, category grid, product grid.
+ * Home screen: category grid and product grid.
  *
- * The viewer and the categories are fetched in parallel through `useQueries`.
- * Chaining them would make the page as slow as the sum of both requests, and
- * neither depends on the other: the greeting needs the profile, the grid needs
- * the categories. Products are a separate query because they re-run whenever
- * the selected category changes, while the first two are fetched once.
+ * The greeting lives in `AppLayout` now, so this screen no longer loads the
+ * viewer: one `['me']` query for the whole app means the header and the club
+ * notices can never disagree about who is looking.
+ *
+ * Prices are shown plainly here, the same for everyone. The storefront is not
+ * where membership is explained — a grid of struck-through numbers reads as a
+ * sale, and the club tier is a standing rate, not a promotion.
  */
 export function CatalogScreen({
   onOpenProduct,
@@ -29,23 +30,10 @@ export function CatalogScreen({
 }) {
   const [category, setCategory] = useState<string | null>(null);
 
-  const [viewerQuery, categoriesQuery] = useQueries({
-    queries: [
-      {
-        queryKey: ['me'],
-        queryFn: () => api.getViewer(),
-        // The profile changes far less often than stock does.
-        staleTime: 5 * 60 * 1000,
-        // Outside Telegram (and without dev auth) this is a guaranteed 401.
-        // Retrying would only delay the fallback greeting.
-        retry: false,
-      },
-      {
-        queryKey: ['categories'],
-        queryFn: () => api.listCategories(),
-        staleTime: 5 * 60 * 1000,
-      },
-    ],
+  const categoriesQuery = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.listCategories(),
+    staleTime: 5 * 60 * 1000,
   });
 
   const productsQuery = useQuery({
@@ -61,12 +49,6 @@ export function CatalogScreen({
 
   return (
     <div className="page">
-      {viewerQuery.isPending ? (
-        <GreetingSkeleton />
-      ) : (
-        <Greeting viewer={viewerQuery.data ?? null} />
-      )}
-
       <h2 className="section-title" style={{ marginTop: 0 }}>
         Каталог
       </h2>
@@ -128,33 +110,6 @@ export function CatalogScreen({
         </div>
       ) : null}
     </div>
-  );
-}
-
-/**
- * Greeting line.
- *
- * `viewer` is null when the profile request failed — outside Telegram, or with
- * an expired signature. That is not an error worth showing: the catalog is
- * public and browsing must keep working, so the name simply falls back to a
- * neutral greeting.
- */
-function Greeting({ viewer }: { viewer: Viewer | null }) {
-  const name = viewer?.firstName?.trim();
-  const initial = name ? [...name][0] : '👋';
-
-  return (
-    <header className="greeting">
-      <div className="greeting__avatar" aria-hidden="true">
-        {initial}
-      </div>
-      <div className="greeting__text">
-        <p className="greeting__hello">
-          {name ? `Привет, ${name}` : 'Привет'}
-        </p>
-        <p className="greeting__caption">Цифровые товары с моментальной выдачей</p>
-      </div>
-    </header>
   );
 }
 

@@ -46,8 +46,11 @@ body {
 
 .page {
   padding: var(--page-padding);
-  /* Leave room for the native MainButton so content is never hidden. */
-  padding-bottom: calc(var(--page-padding) + 96px);
+  /*
+   * Room for the native MainButton, which floats above the WebView and is not
+   * part of the document. The tab bar is in normal flow and needs no allowance.
+   */
+  padding-bottom: calc(var(--page-padding) + 80px);
   max-width: 640px;
   margin: 0 auto;
 }
@@ -133,60 +136,245 @@ body {
   color: var(--tg-button-text-color);
 }
 
-/* ---------- greeting ---------- */
+/* ---------- root frame ---------- */
 
-.greeting {
+/*
+ * The shell is a column: header, scrolling content, tab bar. The tab bar is
+ * part of the flow rather than `position: fixed` so it cannot overlap the last
+ * row of a list on short viewports.
+ */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app-shell__content {
+  flex: 1;
+  min-height: 0;
+}
+
+.dev-banner {
+  background: var(--tg-secondary-bg-color);
+  padding: 8px 16px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--tg-hint-color);
+}
+
+/* ---------- profile header ---------- */
+
+.app-header {
   display: flex;
   align-items: center;
   gap: var(--gap);
-  margin-bottom: 20px;
-  min-height: 48px;
+  width: 100%;
+  padding: 12px var(--page-padding);
+  border: none;
+  background: var(--tg-bg-color);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Same max width as `.page`, so the header lines up with the content. */
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 68px;
+}
+
+.app-header:active {
+  background: var(--tg-secondary-bg-color);
 }
 
 /*
  * Initial instead of a photo: `initDataUnsafe.photo_url` is not available on
  * every client and platform, and a broken image is worse than a letter.
  */
-.greeting__avatar {
+.app-header__avatar {
   flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: var(--tg-button-color);
   color: var(--tg-button-text-color);
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 600;
   text-transform: uppercase;
   user-select: none;
 }
 
-.greeting__avatar-skeleton {
+.app-header__avatar-skeleton {
   flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
 }
 
-.greeting__text {
+.app-header__text {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
-.greeting__hello {
-  font-size: 20px;
+.app-header__name {
+  font-size: 17px;
   font-weight: 600;
-  margin: 0;
-  /* A long Telegram first name must not push the layout sideways. */
+  /* A long Telegram first name must not push the chevron off screen. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.greeting__caption {
+.app-header__caption {
   color: var(--tg-hint-color);
   font-size: 13px;
-  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-header__chevron {
+  flex: 0 0 auto;
+  color: var(--tg-hint-color);
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* ---------- tab bar ---------- */
+
+.tab-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  background: var(--tg-bg-color);
+  border-top: 1px solid var(--tg-secondary-bg-color);
+  /* Respect the iOS home-indicator area. */
+  padding-bottom: env(safe-area-inset-bottom);
+  z-index: 10;
+}
+
+.tab-bar__item {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--tg-hint-color);
+  font: inherit;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.tab-bar__item[aria-current='page'] {
+  color: var(--tg-link-color);
+}
+
+.tab-bar__icon {
+  font-size: 20px;
+  position: relative;
+}
+
+.tab-bar__badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  background: var(--tg-destructive-text-color);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  padding: 0 4px;
+}
+
+/* ---------- club tier ---------- */
+
+.club-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px var(--gap);
+  border: none;
+  border-radius: var(--radius);
+  background: var(--tg-section-bg-color);
+  color: var(--tg-text-color);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  /* An accent stripe marks it as an offer without shouting like a sale badge. */
+  box-shadow: inset 3px 0 0 var(--tg-button-color);
+}
+
+.club-notice--active {
+  box-shadow: inset 3px 0 0 #34c759;
+}
+
+.club-notice__text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.club-notice__icon {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.club-badge {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--tg-secondary-bg-color);
+  color: var(--tg-hint-color);
+}
+
+.club-badge--active {
+  background: rgba(52, 199, 89, 0.15);
+  color: #34c759;
+}
+
+/* ---------- profile ---------- */
+
+.profile-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+.profile-hero__avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--tg-button-color);
+  color: var(--tg-button-text-color);
+  font-size: 30px;
+  font-weight: 600;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.profile-hero__avatar-skeleton {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  margin-bottom: 12px;
 }
 
 /* ---------- category grid ---------- */

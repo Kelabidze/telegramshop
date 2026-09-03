@@ -84,6 +84,15 @@ export const viewerSchema = z.object({
    */
   permissions: z.array(permissionSchema),
   /**
+   * Membership in the club channel, as verified server-side. Drives the club
+   * tier: a member pays the stored price, everyone else the standard one.
+   *
+   * The client never asserts this — like every other identity fact it comes
+   * from the API, which asks Telegram. Defaulted to `false` so a viewer coming
+   * from an older API still parses and simply gets no club rate.
+   */
+  isSubscribedChannel: z.boolean().default(false),
+  /**
    * Legacy mirror of `role === 'ADMIN'`, kept so existing clients keep working.
    * No authorization check reads it.
    */

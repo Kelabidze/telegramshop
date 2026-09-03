@@ -10,12 +10,12 @@ import {
 } from '../store/cart.ts';
 import { useMainButton } from '../telegram/buttons.ts';
 import { haptic, openInvoice, showAlert } from '../telegram/webapp.ts';
-import { EmptyState, Price, Stepper } from '../components/ui.tsx';
+import { EmptyState, ClubTierNotice, Price, Stepper } from '../components/ui.tsx';
 
 /**
- * Cart and checkout.
+ * Cart and chkout.
  *
- * Checkout sequence:
+ * chkout sequence:
  *   POST /api/orders -> invoice link -> WebApp.openInvoice -> status callback
  *
  * The cart is cleared only on a confirmed `paid` status. Goods themselves are
@@ -23,9 +23,11 @@ import { EmptyState, Price, Stepper } from '../components/ui.tsx';
  * client that closes early still receives the purchase.
  */
 export function CartScreen({
+  isSubscribedChannel,
   onContinueShopping,
   onOpenOrders,
 }: {
+  isSubscribedChannel: boolean;
   onContinueShopping: () => void;
   onOpenOrders: () => void;
 }) {
@@ -198,6 +200,16 @@ export function CartScreen({
           {currency ? formatMoney(totalMinor, currency) : '—'}
         </strong>
       </div>
+
+      {/*
+        Both states are shown here, unlike on the product page: the cart is the
+        last screen before payment, so a member should see the rate is already
+        working, and everyone else what it would be worth.
+      */}
+      <ClubTierNotice
+        isSubscribedChannel={isSubscribedChannel}
+        variant="cart"
+      />
 
       <p className="hint" style={{ marginTop: 12 }}>
         Товары придут в этот чат сразу после оплаты.

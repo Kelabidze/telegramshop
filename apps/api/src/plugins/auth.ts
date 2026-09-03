@@ -174,6 +174,11 @@ function toViewer(user: UserRow, role: UserRole): Viewer {
       const parsed = permissionSchema.safeParse(permission);
       return parsed.success ? [parsed.data] : [];
     }),
+    // Channel membership is not verified yet: the getChatMember check lands in
+    // the next step. Reported as `false` from the server rather than assumed on
+    // the client, so the flag has exactly one source and enabling the real
+    // check changes how the value is computed, not where it comes from.
+    isSubscribedChannel: false,
     isAdmin: role === 'ADMIN',
   };
 }

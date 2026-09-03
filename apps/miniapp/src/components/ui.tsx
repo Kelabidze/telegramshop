@@ -1,4 +1,94 @@
-import { formatMoney, type Currency } from '@shop/shared';
+import { CLUB_TIER_PERCENT, formatMoney, type Currency } from '@shop/shared';
+import { openChannel, showAlert, showConfirm } from '../telegram/webapp.ts';
+
+/**
+ * Club tier notices.
+ *
+ * Two states, one component: an invitation for a viewer who is not in the
+ * channel, a confirmation for one who is. Both carry the ℹ️ affordance and
+ * explain the offer in a popup rather than in a wall of small print.
+ */
+export function ClubTierNotice({
+  isSubscribedChannel,
+  variant,
+}: {
+  isSubscribedChannel: boolean;
+  /** `product` sits above the action button; `cart` above the total. */
+  variant: 'product' | 'cart';
+}) {
+  if (isSubscribedChannel) {
+    return (
+      <button
+        type="button"
+        className="club-notice club-notice--active"
+        onClick={() =>
+          showAlert(
+            `Клубный тариф ${CLUB_TIER_PERCENT}% активирован: вы подписаны на канал, ` +
+              'и цены в приложении уже учитывают клубную выгоду.',
+          )
+        }
+      >
+        <span className="club-notice__text">
+          Клубный тариф {CLUB_TIER_PERCENT}% активирован
+        </span>
+        <span className="club-notice__icon" aria-hidden="true">
+          ℹ️
+        </span>
+      </button>
+    );
+  }
+
+  const text =
+    variant === 'product'
+      ? `Получите клубную выгоду ${CLUB_TIER_PERCENT}%`
+      : `Вы можете сохранить ${CLUB_TIER_PERCENT}%`;
+
+  const offer =
+    variant === 'product'
+      ? `Подпишитесь на наш канал — и клубный тариф ${CLUB_TIER_PERCENT}% ` +
+        'будет применяться ко всем товарам автоматически.'
+      : 'Оформите подписку на канал, чтобы активировать клубный тариф ' +
+        `${CLUB_TIER_PERCENT}% и сохранить эту сумму на заказе.`;
+
+  return (
+    <button
+      type="button"
+      className="club-notice"
+      onClick={() => {
+        // Ask before leaving: opening the channel without warning drops the
+        // user out of the app mid-purchase. When no channel link is
+        // configured the popup is informational only, so the tap still
+        // explains the offer instead of doing nothing.
+        if (!openChannel.isAvailable()) {
+          showAlert(offer);
+          return;
+        }
+        void showConfirm(`${offer}\n\nОткрыть канал?`).then((ok) => {
+          if (ok) openChannel.open();
+        });
+      }}
+    >
+      <span className="club-notice__text">{text}</span>
+      <span className="club-notice__icon" aria-hidden="true">
+        ℹ️
+      </span>
+    </button>
+  );
+}
+
+/** Link out to the club channel. Rendered only when the link is configured. */
+export function ClubChannelButton({ label }: { label: string }) {
+  if (!openChannel.isAvailable()) return null;
+  return (
+    <button
+      type="button"
+      className="button"
+      onClick={() => openChannel.open()}
+    >
+      {label}
+    </button>
+  );
+}
 
 export function Price({
   amountMinor,
@@ -76,25 +166,6 @@ export function ProductSkeletonGrid() {
       {Array.from({ length: 4 }, (_, i) => (
         <div key={i} className="skeleton skeleton--card" />
       ))}
-    </div>
-  );
-}
-
-/**
- * Placeholder for the greeting line.
- *
- * Sized to the text it replaces so the header does not jump when the name
- * arrives — layout shift right under the user's thumb is what makes a Mini App
- * feel like a web page rather than a native screen.
- */
-export function GreetingSkeleton() {
-  return (
-    <div className="greeting" aria-hidden="true">
-      <div className="skeleton greeting__avatar-skeleton" />
-      <div className="stack" style={{ gap: 6, flex: 1 }}>
-        <div className="skeleton skeleton--text" style={{ width: '55%' }} />
-        <div className="skeleton skeleton--text skeleton--text-sm" style={{ width: '35%' }} />
-      </div>
     </div>
   );
 }
