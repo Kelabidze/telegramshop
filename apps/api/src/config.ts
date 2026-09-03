@@ -37,6 +37,18 @@ const envSchema = z.object({
   /** Override the Bot API root. Used by tests to avoid real network calls. */
   TELEGRAM_API_ROOT: z.string().default(''),
   PUBLIC_API_URL: z.string().default(''),
+  /** Public origin of the Mini App, for the web_app buttons in the bot. */
+  PUBLIC_APP_URL: z.string().default(''),
+
+  /**
+   * Club channel membership is checked against this chat.
+   *
+   * Either `@publicname` or a numeric `-100…` id. The bot must be an
+   * administrator of the channel, otherwise `getChatMember` refuses.
+   */
+  CLUB_CHANNEL_ID: z.string().default(''),
+  /** Public invite link shown to users, e.g. https://t.me/ochkisk. */
+  CLUB_CHANNEL_URL: z.string().default(''),
 
   PAYMENT_PROVIDER: z.enum(['stars', 'provider', 'none']).default('stars'),
 
@@ -44,6 +56,13 @@ const envSchema = z.object({
   ADMIN_TELEGRAM_IDS: csv,
 
   INIT_DATA_MAX_AGE_SECONDS: z.coerce.number().int().min(0).default(86_400),
+  /**
+   * How long a membership answer is trusted, in seconds.
+   *
+   * Kept short: a viewer who just joined the channel expects the club rate on
+   * the next screen, not in ten minutes.
+   */
+  CLUB_MEMBERSHIP_TTL_SECONDS: z.coerce.number().int().min(0).default(60),
   ALLOW_DEV_AUTH: booleanish.default(false),
 });
 
@@ -103,6 +122,16 @@ if (isProd) {
       'PAYMENT_PROVIDER="provider" requires TELEGRAM_PROVIDER_TOKEN.',
     );
   }
+  // A configured channel with no invite link, or the reverse, is always a
+  // mistake: half the feature works and the other half fails silently — either
+  // members get a rate nobody is invited to claim, or the app advertises a
+  // channel whose membership is never verified and so charges the same price.
+  if (Boolean(raw.CLUB_CHANNEL_ID) !== Boolean(raw.CLUB_CHANNEL_URL)) {
+    throw new Error(
+      'CLUB_CHANNEL_ID and CLUB_CHANNEL_URL must be set together: one without ' +
+        'the other means the club rate is either unclaimable or unverified.',
+    );
+  }
 }
 
 export const config = {
@@ -125,7 +154,20 @@ export const config = {
   },
 
   publicApiUrl: raw.PUBLIC_API_URL.replace(/\/+$/, ''),
+  publicAppUrl: raw.PUBLIC_APP_URL.replace(/\/+$/, ''),
   paymentProvider: raw.PAYMENT_PROVIDER,
+
+  /**
+   * Club channel. `enabled` is the single question the rest of the code asks:
+   * without both an id to verify against and a link to send people to, the
+   * feature is off and everyone pays the standard price.
+   */
+  clubChannel: {
+    id: raw.CLUB_CHANNEL_ID,
+    url: raw.CLUB_CHANNEL_URL,
+    enabled: raw.CLUB_CHANNEL_ID.length > 0,
+    membershipTtlMs: raw.CLUB_MEMBERSHIP_TTL_SECONDS * 1000,
+  },
 
   corsOrigins: raw.CORS_ORIGINS,
   adminTelegramIds: new Set(raw.ADMIN_TELEGRAM_IDS),

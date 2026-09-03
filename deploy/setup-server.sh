@@ -146,6 +146,10 @@ TELEGRAM_WEBHOOK_SECRET=${WEBHOOK_SECRET}
 # Public HTTPS origin of this server.
 PUBLIC_API_URL=https://${DOMAIN}
 
+# Same origin: Caddy serves the Mini App and proxies /api. This is what the
+# bot's inline buttons open, so it must be the app, not the API.
+PUBLIC_APP_URL=https://${DOMAIN}
+
 PAYMENT_PROVIDER=stars
 TELEGRAM_PROVIDER_TOKEN=
 
@@ -153,6 +157,15 @@ TELEGRAM_PROVIDER_TOKEN=
 CORS_ORIGINS=https://${DOMAIN}
 
 INIT_DATA_MAX_AGE_SECONDS=86400
+
+# Club tier: membership in this channel lowers prices by 5%.
+# Set BOTH or NEITHER - the API refuses to start with only one, because half the
+# feature fails silently. The bot must be an ADMINISTRATOR of the channel.
+#   CLUB_CHANNEL_ID=@your_channel
+#   CLUB_CHANNEL_URL=https://t.me/your_channel
+CLUB_CHANNEL_ID=
+CLUB_CHANNEL_URL=
+CLUB_MEMBERSHIP_TTL_SECONDS=60
 
 # Your Telegram user id(s), comma-separated.
 ADMIN_TELEGRAM_IDS=

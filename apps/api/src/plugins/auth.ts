@@ -6,6 +6,11 @@ import { config } from '../config.js';
 import { prisma } from '../db.js';
 import { AppError, unauthorized } from '../errors.js';
 import { InitDataError, verifyInitData } from '../telegram/init-data.js';
+import {
+  forgetClubMembership,
+  isClubChannelMember,
+  type MembershipLogger,
+} from '../telegram/membership.js';
 
 /**
  * Authentication and authorization for Mini App requests.
@@ -43,6 +48,15 @@ declare module 'fastify' {
 }
 
 const AUTH_SCHEME = /^tma\s+(.+)$/i;
+
+/**
+ * Header the Mini App sets when the user states they just joined the channel.
+ *
+ * A hint, never an authorisation: it makes the server re-ask `getChatMember`
+ * instead of trusting a cached "no". Forging it buys nothing except a fresh
+ * lookup — and the lookup is what decides the price.
+ */
+const RECHECK_MEMBERSHIP_HEADER = 'x-club-recheck';
 
 /**
  * Loaded alongside every user lookup: authorization must never run against a
@@ -84,6 +98,11 @@ function devViewer(
   return { telegramId, firstName };
 }
 
+/** True when the caller asks for a fresh membership lookup. */
+function wantsMembershipRecheck(request: FastifyRequest): boolean {
+  return request.headers[RECHECK_MEMBERSHIP_HEADER] === '1';
+}
+
 interface UpsertInput {
   telegramId: string;
   firstName: string;
@@ -91,6 +110,12 @@ interface UpsertInput {
   username?: string | null;
   languageCode?: string | null;
   isPremium?: boolean;
+  /**
+   * Set when the viewer states they just joined the channel. Forces a fresh
+   * `getChatMember` instead of serving the cached negative answer.
+   */
+  recheckMembership?: boolean;
+  log?: MembershipLogger;
 }
 
 /** Shape returned by every user query in this module. */
@@ -135,19 +160,29 @@ async function upsertUser(input: UpsertInput): Promise<Viewer> {
     isPremium: input.isPremium ?? false,
   };
 
+  if (input.recheckMembership) forgetClubMembership(input.telegramId);
+
   // The admin flag and role are both derived from config on every login, so
   // access is granted and revoked without touching the database. `role` is
   // written unconditionally rather than in a follow-up UPDATE: a second query
   // would double the cost of every admin request for no benefit.
-  const user = await prisma.user.upsert({
-    where: { telegramId: input.telegramId },
-    update: { ...data, isAdmin: isConfigAdmin },
-    create: { telegramId: input.telegramId, ...data, isAdmin: isConfigAdmin },
-    include: VIEWER_INCLUDE,
-  });
+  //
+  // The membership check runs in parallel with the upsert: it is a network call
+  // to Telegram and the upsert is a local write, so awaiting them in sequence
+  // would add the Bot API round-trip to the latency of every authenticated
+  // request. Neither depends on the other.
+  const [user, isSubscribedChannel] = await Promise.all([
+    prisma.user.upsert({
+      where: { telegramId: input.telegramId },
+      update: { ...data, isAdmin: isConfigAdmin },
+      create: { telegramId: input.telegramId, ...data, isAdmin: isConfigAdmin },
+      include: VIEWER_INCLUDE,
+    }),
+    isClubChannelMember(input.telegramId, input.log),
+  ]);
 
   const role = resolveRole(user.role, isConfigAdmin);
-  if (user.role === role) return toViewer(user, role);
+  if (user.role === role) return toViewer(user, role, isSubscribedChannel);
 
   // Persist the corrected role so anything reading the table directly (Studio,
   // reports, a future admin UI) sees the same truth the API enforces.
@@ -156,10 +191,14 @@ async function upsertUser(input: UpsertInput): Promise<Viewer> {
     data: { role },
     include: VIEWER_INCLUDE,
   });
-  return toViewer(corrected, role);
+  return toViewer(corrected, role, isSubscribedChannel);
 }
 
-function toViewer(user: UserRow, role: UserRole): Viewer {
+function toViewer(
+  user: UserRow,
+  role: UserRole,
+  isSubscribedChannel: boolean,
+): Viewer {
   return {
     id: user.id,
     telegramId: user.telegramId,
@@ -174,11 +213,7 @@ function toViewer(user: UserRow, role: UserRole): Viewer {
       const parsed = permissionSchema.safeParse(permission);
       return parsed.success ? [parsed.data] : [];
     }),
-    // Channel membership is not verified yet: the getChatMember check lands in
-    // the next step. Reported as `false` from the server rather than assumed on
-    // the client, so the flag has exactly one source and enabling the real
-    // check changes how the value is computed, not where it comes from.
-    isSubscribedChannel: false,
+    isSubscribedChannel,
     isAdmin: role === 'ADMIN',
   };
 }
@@ -191,7 +226,11 @@ async function resolveViewer(request: FastifyRequest): Promise<Viewer> {
   if (!raw) {
     const dev = devViewer(request);
     if (dev) {
-      const viewer = await upsertUser(dev);
+      const viewer = await upsertUser({
+        ...dev,
+        recheckMembership: wantsMembershipRecheck(request),
+        log: request.log,
+      });
       request.viewer = viewer;
       request.log.warn(
         { telegramId: viewer.telegramId },
@@ -238,6 +277,8 @@ async function resolveViewer(request: FastifyRequest): Promise<Viewer> {
     username: tgUser.username ?? null,
     languageCode: tgUser.language_code ?? null,
     isPremium: tgUser.is_premium === true,
+    recheckMembership: wantsMembershipRecheck(request),
+    log: request.log,
   });
 
   request.viewer = viewer;

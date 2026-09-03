@@ -346,6 +346,14 @@ body {
   color: #34c759;
 }
 
+.club-link {
+  color: var(--tg-link-color);
+  font-size: 14px;
+  text-decoration: none;
+  /* A long invite link must not stretch the card. */
+  overflow-wrap: anywhere;
+}
+
 /* ---------- profile ---------- */
 
 .profile-hero {

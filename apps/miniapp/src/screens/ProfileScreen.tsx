@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { Viewer } from '@shop/shared';
 import { CLUB_TIER_PERCENT } from '@shop/shared';
 import { api } from '../api/client.ts';
-import { ClubChannelButton, EmptyState } from '../components/ui.tsx';
+import { ClubChannelLink, EmptyState } from '../components/ui.tsx';
 import { openChannel } from '../telegram/webapp.ts';
 
 const ROLE_LABEL: Record<Viewer['role'], string> = {
@@ -91,8 +91,9 @@ export function ProfileScreen({
             </div>
             <p className="hint" style={{ margin: 0 }}>
               Вы подписаны на канал, поэтому цены в приложении уже учитывают
-              клубную выгоду.
+              скидку {CLUB_TIER_PERCENT}%.
             </p>
+            <ClubChannelLink label="Наш канал" />
           </>
         ) : (
           <>
@@ -100,10 +101,10 @@ export function ProfileScreen({
               <span className="club-badge">Клубный тариф не активирован</span>
             </div>
             <p className="hint" style={{ margin: 0 }}>
-              Подпишитесь на наш канал, чтобы получать клубный тариф{' '}
-              {CLUB_TIER_PERCENT}% на все товары.
+              Подпишитесь на наш канал, чтобы получать скидку в{' '}
+              {CLUB_TIER_PERCENT}% на все товары по клубному тарифу.
             </p>
-            <ClubChannelButton label="Перейти в канал" />
+            <ClubChannelLink />
             {!openChannel.isAvailable() ? (
               <p className="hint" style={{ margin: 0 }}>
                 Ссылка на канал появится здесь позже.

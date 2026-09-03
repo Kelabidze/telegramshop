@@ -1,4 +1,9 @@
-import { CLUB_TIER_PERCENT, formatMoney, type Currency } from '@shop/shared';
+import {
+  CLUB_TIER_PERCENT,
+  effectiveUnitMinor,
+  formatMoney,
+  type Currency,
+} from '@shop/shared';
 import { openChannel, showAlert, showConfirm } from '../telegram/webapp.ts';
 
 /**
@@ -11,11 +16,24 @@ import { openChannel, showAlert, showConfirm } from '../telegram/webapp.ts';
 export function ClubTierNotice({
   isSubscribedChannel,
   variant,
+  tierAdjustmentMinor,
+  currency,
 }: {
   isSubscribedChannel: boolean;
   /** `product` sits above the action button; `cart` above the total. */
   variant: 'product' | 'cart';
+  /** What the club tier is worth on this cart. Omitted on a product page. */
+  tierAdjustmentMinor?: number;
+  currency?: Currency | null;
 }) {
+  // Naming the sum beats naming the rate, but only when there is a sum to name:
+  // on a 1-star item the club tier rounds to nothing, and "сохранить 0 ⭐" is an
+  // argument against subscribing.
+  const savings =
+    tierAdjustmentMinor && tierAdjustmentMinor > 0 && currency
+      ? formatMoney(tierAdjustmentMinor, currency)
+      : null;
+
   if (isSubscribedChannel) {
     return (
       <button
@@ -24,7 +42,7 @@ export function ClubTierNotice({
         onClick={() =>
           showAlert(
             `Клубный тариф ${CLUB_TIER_PERCENT}% активирован: вы подписаны на канал, ` +
-              'и цены в приложении уже учитывают клубную выгоду.',
+              'и цены в приложении уже учитывают скидку.',
           )
         }
       >
@@ -41,29 +59,31 @@ export function ClubTierNotice({
   const text =
     variant === 'product'
       ? `Получите клубную выгоду ${CLUB_TIER_PERCENT}%`
-      : `Вы можете сохранить ${CLUB_TIER_PERCENT}%`;
+      : savings
+        ? `Вы можете сохранить ${savings}`
+        : `Вы можете сохранить ${CLUB_TIER_PERCENT}%`;
 
   const offer =
     variant === 'product'
-      ? `Подпишитесь на наш канал — и клубный тариф ${CLUB_TIER_PERCENT}% ` +
-        'будет применяться ко всем товарам автоматически.'
+      ? `Подпишитесь на наш канал для скидки ${CLUB_TIER_PERCENT}% по клубному тарифу!`
       : 'Оформите подписку на канал, чтобы активировать клубный тариф ' +
-        `${CLUB_TIER_PERCENT}% и сохранить эту сумму на заказе.`;
+        `и получить скидку ${CLUB_TIER_PERCENT}% на этот заказ.`;
 
   return (
     <button
       type="button"
       className="club-notice"
       onClick={() => {
-        // Ask before leaving: opening the channel without warning drops the
-        // user out of the app mid-purchase. When no channel link is
-        // configured the popup is informational only, so the tap still
-        // explains the offer instead of doing nothing.
-        if (!openChannel.isAvailable()) {
+        // The popup carries the channel link, and confirming opens it: showing
+        // the offer without a way to accept it would make the ℹ️ a dead end.
+        // Asked rather than opened straight away — leaving the app unannounced
+        // mid-purchase is how a cart gets abandoned.
+        const link = openChannel.url();
+        if (!link) {
           showAlert(offer);
           return;
         }
-        void showConfirm(`${offer}\n\nОткрыть канал?`).then((ok) => {
+        void showConfirm(`${offer}\n\n${link}\n\nОткрыть канал?`).then((ok) => {
           if (ok) openChannel.open();
         });
       }}
@@ -77,38 +97,64 @@ export function ClubTierNotice({
 }
 
 /** Link out to the club channel. Rendered only when the link is configured. */
-export function ClubChannelButton({ label }: { label: string }) {
-  if (!openChannel.isAvailable()) return null;
+export function ClubChannelLink({ label }: { label?: string }) {
+  const url = openChannel.url();
+  if (!url) return null;
   return (
-    <button
-      type="button"
-      className="button"
-      onClick={() => openChannel.open()}
+    <a
+      className="club-link"
+      href={url}
+      target="_blank"
+      rel="noreferrer noopener"
+      onClick={(event) => {
+        // Inside Telegram `openTelegramLink` keeps the user in the app; the
+        // plain href is the browser fallback and must not fire on top of it.
+        event.preventDefault();
+        openChannel.open();
+      }}
     >
-      {label}
-    </button>
+      {label ?? url}
+    </a>
   );
 }
 
+/**
+ * A price, as this viewer will be charged it.
+ *
+ * Takes the stored club tier amount and the viewer's membership, never a
+ * pre-computed number: `isSubscribedChannel` is required, so a call site that
+ * forgets about the club rate fails to compile instead of quietly showing a
+ * figure the invoice will contradict. The conversion is the same shared
+ * function the server runs at checkout.
+ */
 export function Price({
-  amountMinor,
+  clubTierMinor,
   currency,
   compareAtMinor,
+  isSubscribedChannel,
 }: {
-  amountMinor: number;
+  clubTierMinor: number;
   currency: Currency;
   compareAtMinor?: number | null;
+  isSubscribedChannel: boolean;
 }) {
-  if (amountMinor === 0) {
+  if (clubTierMinor === 0) {
     return <span className="price">Бесплатно</span>;
   }
+
+  const amountMinor = effectiveUnitMinor(clubTierMinor, isSubscribedChannel);
+  // The "was" price is scaled the same way. Left alone it could end up below the
+  // current price for a non-member, turning a sale badge into a price increase.
+  const compareAt =
+    compareAtMinor == null
+      ? null
+      : effectiveUnitMinor(compareAtMinor, isSubscribedChannel);
+
   return (
     <span>
       <span className="price">{formatMoney(amountMinor, currency)}</span>
-      {compareAtMinor && compareAtMinor > amountMinor ? (
-        <span className="price--old">
-          {formatMoney(compareAtMinor, currency)}
-        </span>
+      {compareAt && compareAt > amountMinor ? (
+        <span className="price--old">{formatMoney(compareAt, currency)}</span>
       ) : null}
     </span>
   );

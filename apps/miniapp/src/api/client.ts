@@ -8,6 +8,7 @@ import type {
   ProductListItem,
   Viewer,
 } from '@shop/shared';
+import { CLUB_RECHECK_PARAM } from '@shop/shared';
 import { getInitData } from '../telegram/webapp.ts';
 
 /**
@@ -52,6 +53,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * True when the app was opened from the bot's "Я подписался!" button.
+ *
+ * Read once at load, from the URL the bot built. Telling the server about it
+ * makes it re-ask Telegram instead of serving a cached "not a member" — the
+ * whole point of that button. Read once rather than per request so a page left
+ * open does not keep forcing lookups.
+ */
+const WANTS_MEMBERSHIP_RECHECK = new URLSearchParams(
+  window.location.search,
+).has(CLUB_RECHECK_PARAM);
+
 function buildHeaders(hasBody: boolean): HeadersInit {
   const headers: Record<string, string> = {};
   if (hasBody) headers['content-type'] = 'application/json';
@@ -63,6 +76,9 @@ function buildHeaders(hasBody: boolean): HeadersInit {
     // Only works when the API has ALLOW_DEV_AUTH enabled.
     headers['x-dev-telegram-id'] = DEV_TELEGRAM_ID;
   }
+
+  if (WANTS_MEMBERSHIP_RECHECK) headers['x-club-recheck'] = '1';
+
   return headers;
 }
 

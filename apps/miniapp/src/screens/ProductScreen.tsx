@@ -112,9 +112,10 @@ export function ProductScreen({
       <div className="row" style={{ margin: '16px 0' }}>
         <span style={{ fontSize: 22 }}>
           <Price
-            amountMinor={product.amountMinor}
+            clubTierMinor={product.amountMinor}
             currency={product.currency}
             compareAtMinor={product.compareAtMinor}
+            isSubscribedChannel={isSubscribedChannel}
           />
         </span>
         <div className="spacer" />

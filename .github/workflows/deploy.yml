@@ -60,6 +60,13 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # Vite inlines env vars at build time, so the club channel link has to
+          # exist here: set it after the build and the Mini App would render no
+          # link at all, while the API still verified membership. Not a secret —
+          # it is a public invite link — but it lives in repository variables so
+          # changing the channel does not require a code change.
+          VITE_CLUB_CHANNEL_URL: ${{ vars.CLUB_CHANNEL_URL }}
 
       # The VPS has too little RAM to run `npm ci` at all: resolving this graph
       # (~13.8k files, 370 MB) gets the process OOM-killed. So the runner

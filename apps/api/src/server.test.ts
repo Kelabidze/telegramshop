@@ -10,6 +10,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
+// Safe to import before the env is set up: `@shop/shared` is pure and reads no
+// configuration, unlike the local modules imported lazily inside `before`.
+import { effectiveUnitMinor } from '@shop/shared';
 
 const BOT_TOKEN = '424242:AAH-integration-test-token';
 const TG_ID = '555000111';
@@ -184,9 +187,12 @@ describe('authentication', () => {
     assert.equal(viewer.isAdmin, false, 'users must not be admin by default');
   });
 
-  it('reports channel membership as false until the check lands', async () => {
-    // The getChatMember verification is not wired in yet; the flag must come
-    // from the server regardless, so the client is never the one deciding it.
+  it('reports no channel membership when no club channel is configured', async () => {
+    // With CLUB_CHANNEL_ID unset the feature is off and `getChatMember` is never
+    // called — important in tests, where the Bot API points at an unroutable
+    // address. The flag must still be present and false: the client reads it to
+    // decide which price to display, and `undefined` would be truthy-adjacent
+    // bugs waiting to happen.
     const res = await app.inject({
       method: 'GET',
       url: '/api/me',
@@ -194,6 +200,23 @@ describe('authentication', () => {
     });
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().viewer.isSubscribedChannel, false);
+  });
+
+  it('accepts the membership recheck header without changing the answer', async () => {
+    // The "Я подписался!" button makes the client send this header. It may only
+    // force a fresh getChatMember lookup — never grant membership by itself,
+    // which is exactly what an unsigned header must not be able to do.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: { ...authHeader(), 'x-club-recheck': '1' },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(
+      res.json().viewer.isSubscribedChannel,
+      false,
+      'a client-supplied header must never confer club membership',
+    );
   });
 });
 
@@ -240,7 +263,20 @@ describe('orders', () => {
     });
     assert.equal(res.statusCode, 201);
     const { order } = res.json();
-    assert.equal(order.totalAmountMinor, 300, '150 x 2 must come from the DB');
+
+    // This viewer is not a channel member (no club channel is configured in
+    // tests), so the standard price applies. Derived, not hardcoded: the point
+    // of the test is that the amount comes from the database rather than the
+    // request body, and a literal would break on every rate change while
+    // proving nothing extra.
+    const expectedUnit = effectiveUnitMinor(product.amountMinor, false);
+    assert.equal(
+      order.totalAmountMinor,
+      expectedUnit * 2,
+      'the unit price must come from the DB, times the requested quantity',
+    );
+    assert.equal(order.lines[0].unitAmountMinor, expectedUnit);
+    assert.notEqual(order.totalAmountMinor, 1, 'client price must be ignored');
     assert.equal(order.status, 'PENDING', 'client cannot set status');
     assert.equal(order.lines[0].deliveredPayload, null, 'nothing before payment');
   });
@@ -306,6 +342,55 @@ describe('orders', () => {
     const { orders } = res.json();
     assert.ok(orders.length >= 1);
     assert.equal(orders.length, 1, 'other users\' orders must not appear');
+  });
+  it('charges a channel member the stored club tier price', async () => {
+    // Goes through the service rather than HTTP: membership is resolved from
+    // Telegram during authentication, and no club channel is configured in this
+    // suite. What matters here is that `createOrder` reads the flag off the
+    // viewer the server resolved, so the two viewers must differ only in it.
+    const { createOrder } = await import('./services/orders.ts');
+    const product = await prisma.product.findUniqueOrThrow({
+      where: { slug: 'keyed-item' },
+    });
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { telegramId: TG_ID },
+    });
+
+    const baseViewer = {
+      id: user.id,
+      telegramId: user.telegramId,
+      firstName: user.firstName,
+      lastName: null,
+      username: null,
+      languageCode: null,
+      role: 'USER' as const,
+      permissions: [],
+      isAdmin: false,
+    };
+
+    const asMember = await createOrder(
+      { ...baseViewer, isSubscribedChannel: true },
+      { items: [{ productId: product.id, quantity: 1 }] },
+    );
+    const asGuest = await createOrder(
+      { ...baseViewer, isSubscribedChannel: false },
+      { items: [{ productId: product.id, quantity: 1 }] },
+    );
+
+    assert.equal(
+      asMember.order.totalAmountMinor,
+      product.amountMinor,
+      'a member pays exactly the price stored in the database',
+    );
+    assert.equal(
+      asGuest.order.totalAmountMinor,
+      effectiveUnitMinor(product.amountMinor, false),
+      'a non-member pays the standard price derived from it',
+    );
+    assert.ok(
+      asGuest.order.totalAmountMinor > asMember.order.totalAmountMinor,
+      'membership must never cost more than not having it',
+    );
   });
 });
 

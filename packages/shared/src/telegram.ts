@@ -68,6 +68,25 @@ export type Permission = z.infer<typeof permissionSchema>;
 /** All permissions, for iteration in seeds, admin UIs and tests. */
 export const PERMISSIONS = permissionSchema.options;
 
+/**
+ * Marker the bot puts on the "я подписался" button's URL, and which the Mini
+ * App sends back to ask for a fresh membership lookup.
+ *
+ * Shared because three places must agree on the literal: the bot builds the
+ * URL, the Mini App recognises it, the API acts on it. Drift would be silent —
+ * the button would simply stop refreshing the club status, which is
+ * indistinguishable from the membership check being broken.
+ *
+ * Note it travels as an **ordinary query parameter**, not Telegram's
+ * `start_param`: Telegram only populates that for direct `t.me/bot/app?startapp`
+ * links and the attachment menu, never for an inline `web_app` button. Relying
+ * on `initData.start_param` here would compile, deploy, and never once fire.
+ *
+ * It is only ever a hint to re-ask Telegram. The answer always comes from
+ * `getChatMember`, so an unsigned parameter cannot grant anybody a lower price.
+ */
+export const CLUB_RECHECK_PARAM = 'club_check';
+
 /** The authenticated caller, as resolved by the API. */
 export const viewerSchema = z.object({
   id: z.string(),

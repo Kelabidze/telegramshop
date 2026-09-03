@@ -19,13 +19,17 @@ import { haptic } from '../telegram/webapp.ts';
  * viewer: one `['me']` query for the whole app means the header and the club
  * notices can never disagree about who is looking.
  *
- * Prices are shown plainly here, the same for everyone. The storefront is not
- * where membership is explained — a grid of struck-through numbers reads as a
- * sale, and the club tier is a standing rate, not a promotion.
+ * Prices are shown plainly — a single figure, no strike-throughs — but it is
+ * the figure *this* viewer will be charged: the club tier for a member, the
+ * standard price otherwise. Same conversion the server runs at checkout, so the
+ * grid, the cart and the invoice always agree. A grid of struck-through numbers
+ * would read as a sale, and the club tier is a standing rate, not a promotion.
  */
 export function CatalogScreen({
+  isSubscribedChannel,
   onOpenProduct,
 }: {
+  isSubscribedChannel: boolean;
   onOpenProduct: (slug: string) => void;
 }) {
   const [category, setCategory] = useState<string | null>(null);
@@ -101,6 +105,7 @@ export function CatalogScreen({
             <ProductCard
               key={product.id}
               product={product}
+              isSubscribedChannel={isSubscribedChannel}
               onClick={() => {
                 haptic('tap');
                 onOpenProduct(product.slug);
@@ -145,9 +150,11 @@ function CategoryGrid({
 
 function ProductCard({
   product,
+  isSubscribedChannel,
   onClick,
 }: {
   product: ProductListItem;
+  isSubscribedChannel: boolean;
   onClick: () => void;
 }) {
   const available = isPurchasable(product);
@@ -168,9 +175,10 @@ function ProductCard({
         <div className="product-card__title">{product.title}</div>
         <div className="spacer" />
         <Price
-          amountMinor={product.amountMinor}
+          clubTierMinor={product.amountMinor}
           currency={product.currency}
           compareAtMinor={product.compareAtMinor}
+          isSubscribedChannel={isSubscribedChannel}
         />
         {!available ? (
           <span className="badge badge--danger">Нет в наличии</span>

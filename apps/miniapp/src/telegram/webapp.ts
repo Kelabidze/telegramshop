@@ -207,6 +207,10 @@ export const openChannel = {
   isAvailable(): boolean {
     return CLUB_CHANNEL_URL.length > 0;
   },
+  /** The link itself, for rendering as text. Empty means not configured. */
+  url(): string {
+    return CLUB_CHANNEL_URL;
+  },
   /**
    * `openTelegramLink` keeps the user inside Telegram; `window.open` is the
    * browser fallback so the link still works outside the Mini App.

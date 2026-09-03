@@ -113,6 +113,7 @@ export function App() {
     >
       {current.name === 'catalog' ? (
         <CatalogScreen
+          isSubscribedChannel={isSubscribedChannel}
           onOpenProduct={(slug) => push({ name: 'product', slug })}
         />
       ) : null}

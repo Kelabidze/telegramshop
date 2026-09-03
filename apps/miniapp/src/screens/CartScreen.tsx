@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { formatMoney } from '@shop/shared';
+import { formatMoney, effectiveUnitMinor } from '@shop/shared';
 import { ApiError, api } from '../api/client.ts';
 import {
   selectCurrency,
   selectItemCount,
-  selectTotalMinor,
+  selectTotals,
   useCart,
 } from '../store/cart.ts';
 import { useMainButton } from '../telegram/buttons.ts';
@@ -37,7 +37,7 @@ export function CartScreen({
   const clear = useCart((s) => s.clear);
 
   const itemCount = useCart(selectItemCount);
-  const totalMinor = useCart(selectTotalMinor);
+  const totals = useCart(selectTotals(isSubscribedChannel));
   const currency = useCart(selectCurrency);
 
   const [isSubmitting, setSubmitting] = useState(false);
@@ -116,10 +116,10 @@ export function CartScreen({
     lines.length > 0
       ? {
           text:
-            totalMinor === 0
+            totals.payableMinor === 0
               ? 'Получить бесплатно'
               : currency
-                ? `Оплатить ${formatMoney(totalMinor, currency)}`
+                ? `Оплатить ${formatMoney(totals.payableMinor, currency)}`
                 : 'Оплатить',
           loading: isSubmitting,
           onClick: () => void checkout(),
@@ -156,8 +156,9 @@ export function CartScreen({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600 }}>{line.title}</div>
                 <Price
-                  amountMinor={line.unitAmountMinor}
+                  clubTierMinor={line.unitAmountMinor}
                   currency={line.currency}
+                  isSubscribedChannel={isSubscribedChannel}
                 />
               </div>
               <Stepper
@@ -173,7 +174,8 @@ export function CartScreen({
               <span className="hint">
                 Итого:{' '}
                 {formatMoney(
-                  line.unitAmountMinor * line.quantity,
+                  effectiveUnitMinor(line.unitAmountMinor, isSubscribedChannel) *
+                    line.quantity,
                   line.currency,
                 )}
               </span>
@@ -197,18 +199,22 @@ export function CartScreen({
         <strong>К оплате</strong>
         <div className="spacer" />
         <strong style={{ fontSize: 18 }}>
-          {currency ? formatMoney(totalMinor, currency) : '—'}
+          {currency ? formatMoney(totals.payableMinor, currency) : '—'}
         </strong>
       </div>
 
       {/*
         Both states are shown here, unlike on the product page: the cart is the
         last screen before payment, so a member should see the rate is already
-        working, and everyone else what it would be worth.
+        working, and everyone else what it would be worth. The amount is passed
+        in so the copy can name a sum instead of a percentage — "сохранить 120 ⭐"
+        is a decision, "сохранить 5%" is arithmetic homework.
       */}
       <ClubTierNotice
         isSubscribedChannel={isSubscribedChannel}
         variant="cart"
+        tierAdjustmentMinor={totals.tierAdjustmentMinor}
+        currency={currency}
       />
 
       <p className="hint" style={{ marginTop: 12 }}>

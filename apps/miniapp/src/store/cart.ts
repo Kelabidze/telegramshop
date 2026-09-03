@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware';
 import {
   MAX_CART_LINES,
   MAX_LINE_QUANTITY,
+  cartTotals,
+  type CartTotals,
   type Currency,
   type ProductListItem,
 } from '@shop/shared';
@@ -10,9 +12,14 @@ import {
 /**
  * Cart state.
  *
- * The cart stores a price snapshot only for display. The server recomputes
- * every total from the database at checkout, so a stale or tampered cart can
- * never change what the user is charged.
+ * `unitAmountMinor` is the **club tier** price, exactly as stored in the
+ * catalog — the same number for every viewer. What the viewer actually pays is
+ * derived at render time from their membership (`selectTotals`), so the cart
+ * does not go stale when the club status changes.
+ *
+ * All of it is display-only. The server recomputes every total from the
+ * database at checkout, so a stale or tampered cart can never change what the
+ * user is charged.
  */
 
 export interface CartLine {
@@ -20,7 +27,7 @@ export interface CartLine {
   slug: string;
   title: string;
   imageUrl: string | null;
-  /** Display-only snapshot. */
+  /** Club tier price from the catalog. Display-only; the server re-reads it. */
   unitAmountMinor: number;
   currency: Currency;
   quantity: number;
@@ -139,12 +146,18 @@ export function selectItemCount(state: CartState): number {
   return state.lines.reduce((sum, line) => sum + line.quantity, 0);
 }
 
-/** Display total. Authoritative totals come from the server. */
-export function selectTotalMinor(state: CartState): number {
-  return state.lines.reduce(
-    (sum, line) => sum + line.unitAmountMinor * line.quantity,
-    0,
-  );
+/**
+ * Cart totals at the price this viewer pays.
+ *
+ * Membership is passed in rather than stored: `unitAmountMinor` in the cart is
+ * the club tier straight from the catalog, and the club status can change while
+ * items sit in localStorage. Deriving the payable amount on render means
+ * subscribing to the channel updates the total on the next paint, and the same
+ * shared function runs on the server at checkout — so the invoice matches.
+ */
+export function selectTotals(isSubscribedChannel: boolean) {
+  return (state: CartState): CartTotals =>
+    cartTotals(state.lines, isSubscribedChannel);
 }
 
 /** The cart currency, or null when empty. */

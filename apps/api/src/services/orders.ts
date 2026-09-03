@@ -6,6 +6,7 @@ import {
   type OrderLine,
   type Viewer,
   currencySchema,
+  effectiveUnitMinor,
   fulfillmentKindSchema,
   orderStatusSchema,
 } from '@shop/shared';
@@ -23,6 +24,8 @@ import { payments } from '../payments/gateway.js';
  *     can never receive the same key and stock cannot go negative.
  *  4. Payment processing is idempotent: replaying a Telegram update does not
  *     deliver goods twice.
+ *  5. The club rate is applied from the viewer's verified membership, never
+ *     from anything the client sends.
  */
 
 /** Human-friendly order code. Avoids ambiguous characters (0/O, 1/I). */
@@ -130,12 +133,22 @@ export async function createOrder(
 
     const kind = fulfillmentKindSchema.parse(product.fulfillmentKind);
 
+    // The stored price is the club tier. A verified channel member pays it as
+    // is; everyone else pays the standard price derived from it. `viewer` is the
+    // server's own resolution of the caller, so this cannot be influenced from
+    // the client — and the Mini App calls the same shared function, so the
+    // invoice always matches the screen.
+    const unitAmountMinor = effectiveUnitMinor(
+      product.amountMinor,
+      viewer.isSubscribedChannel,
+    );
+
     return {
       productId: product.id,
       titleSnapshot: product.title,
-      unitAmountMinor: product.amountMinor,
+      unitAmountMinor,
       quantity,
-      totalAmountMinor: product.amountMinor * quantity,
+      totalAmountMinor: unitAmountMinor * quantity,
       fulfillmentKind: kind,
     };
   });
