@@ -10,6 +10,10 @@ import {
   Price,
   ProductSkeletonGrid,
 } from '../components/ui.tsx';
+import {
+  forgetScrollPosition,
+  useScrollRestoration,
+} from '../hooks/useScrollRestoration.ts';
 import { haptic } from '../telegram/webapp.ts';
 
 /**
@@ -45,6 +49,22 @@ export function CatalogScreen({
     queryFn: () => api.listProducts(category ? { category } : {}),
   });
 
+  // Per filter, not per screen: each category is a different list, and restoring
+  // one list's offset onto another lands somewhere arbitrary. Waits for the
+  // products so the document is tall enough to scroll when the offset is applied.
+  useScrollRestoration(
+    `catalog:${category ?? 'all'}`,
+    productsQuery.data !== undefined,
+  );
+
+  /** Switching a filter starts a new list, so its offset must not be inherited. */
+  const selectCategory = (next: string | null) => {
+    haptic('selection');
+    forgetScrollPosition(`catalog:${next ?? 'all'}`);
+    setCategory(next);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  };
+
   const selectedTitle = useMemo(
     () =>
       categoriesQuery.data?.find((c) => c.slug === category)?.title ?? null,
@@ -70,17 +90,33 @@ export function CatalogScreen({
         <CategoryGrid
           categories={categoriesQuery.data}
           selected={category}
-          onSelect={(slug) => {
-            haptic('selection');
-            // Tapping the active tile clears the filter: without this the only
-            // way back to "everything" would be the All tile, which is easy to
-            // miss once the grid scrolls.
-            setCategory((prev) => (prev === slug ? null : slug));
-          }}
+          onSelect={(slug) =>
+            // Tapping the active tile clears the filter too, so the grid itself
+            // is a way back to "everything" without hunting for the All tile.
+            selectCategory(category === slug ? null : slug)
+          }
         />
       ) : null}
 
-      <h2 className="section-title">{selectedTitle ?? 'Все товары'}</h2>
+      <div className="row" style={{ marginTop: 20 }}>
+        <h2 className="section-title" style={{ margin: 0 }}>
+          {selectedTitle ?? 'Все товары'}
+        </h2>
+        <div className="spacer" />
+        {/*
+          Explicit reset, shown only while a filter is on: an always-visible
+          "Все товары" next to an unfiltered list is a button that does nothing.
+        */}
+        {category ? (
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => selectCategory(null)}
+          >
+            Все товары ✕
+          </button>
+        ) : null}
+      </div>
 
       {productsQuery.isPending ? <ProductSkeletonGrid /> : null}
 

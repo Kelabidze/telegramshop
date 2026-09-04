@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Viewer } from '@shop/shared';
 import { api } from '../api/client.ts';
+import { setClubChannelUrl } from '../telegram/webapp.ts';
 
 /**
  * The authenticated viewer, shared by every screen.
@@ -27,6 +29,14 @@ export function useViewer(): {
   });
 
   const viewer = query.data ?? null;
+
+  // The channel link is a server fact, like membership itself. Publishing it
+  // here means every «перейти в канал» in the app points at the channel this
+  // server actually checks, instead of at a value frozen into the bundle.
+  useEffect(() => {
+    if (viewer) setClubChannelUrl(viewer.clubChannelUrl);
+  }, [viewer?.clubChannelUrl]);
+
   return {
     viewer,
     isPending: query.isPending,

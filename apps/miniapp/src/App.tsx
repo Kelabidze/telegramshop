@@ -105,6 +105,13 @@ export function App() {
       }}
       onSelectTab={(tab) => {
         haptic('selection');
+        // Tapping the tab you are already on scrolls to the top, the way native
+        // tab bars behave. Without it a restored offset would be a trap: there
+        // would be no way back to the top but dragging.
+        if (current.name === tab) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
         // Selecting a tab always resets the stack, so it doubles as the exit
         // from the profile and from a product page.
         resetTo({ name: tab });

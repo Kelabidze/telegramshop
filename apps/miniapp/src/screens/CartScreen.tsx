@@ -3,9 +3,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { formatMoney, effectiveUnitMinor } from '@shop/shared';
 import { ApiError, api } from '../api/client.ts';
 import {
+  cartTotalsFor,
   selectCurrency,
   selectItemCount,
-  selectTotals,
   useCart,
 } from '../store/cart.ts';
 import { useMainButton } from '../telegram/buttons.ts';
@@ -37,8 +37,10 @@ export function CartScreen({
   const clear = useCart((s) => s.clear);
 
   const itemCount = useCart(selectItemCount);
-  const totals = useCart(selectTotals(isSubscribedChannel));
   const currency = useCart(selectCurrency);
+  // Derived from `lines`, which is already subscribed above. Deriving it inside
+  // a Zustand selector returns a new object each call and loops forever.
+  const totals = cartTotalsFor(lines, isSubscribedChannel);
 
   const [isSubmitting, setSubmitting] = useState(false);
   const queryClient = useQueryClient();

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Viewer } from '@shop/shared';
-import { CLUB_TIER_PERCENT } from '@shop/shared';
+import { CLUB_TIER_PERCENT, viewerDisplayName } from '@shop/shared';
 
 /**
  * Root frame: a persistent profile header on top, the tab bar at the bottom,
@@ -99,7 +99,9 @@ function ProfileHeader({
     );
   }
 
-  const name = viewer?.firstName?.trim();
+  // The shop-local name wins over the Telegram one: a user who renamed
+  // themselves must not keep seeing the old name in the header.
+  const name = viewer ? viewerDisplayName(viewer) : '';
   // An initial instead of a photo: `photo_url` is absent on several clients and
   // platforms, and a broken image looks worse than a letter.
   const initial = name ? [...name][0] : '👋';

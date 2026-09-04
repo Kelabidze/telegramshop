@@ -53,6 +53,7 @@ apps/api/
     services/admin-catalog.ts запись каталога: категории, товары, ключи
     services/admin-orders.ts глобальный список заказов (VIEW_ORDERS)
     services/managers.ts     назначение менеджеров и выдача прав
+    services/profile.ts      переименование пользователя в магазине
     services/orders.ts       создание заказа, выдача товара, идемпотентность
     payments/gateway.ts      абстракция оплаты (Stars | provider | none)
     telegram/bot.ts          единственный инстанс grammY Bot (или null)
@@ -66,6 +67,7 @@ apps/miniapp/src/
   App.tsx                    стек экранов + выбор активной вкладки
   api/client.ts              типизированный fetch-клиент, ApiError
   api/useViewer.ts           единственный запрос ['me'] на всё приложение
+  hooks/useScrollRestoration.ts  запоминает позицию прокрутки на экран
   screens/                   CatalogScreen (главная), ProductScreen, CartScreen,
                              OrdersScreen, ProfileScreen
   components/AppLayout.tsx   корневой каркас: шапка профиля + нижняя навигация
@@ -208,7 +210,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 | Модель            | Зачем и что важно                                                |
 | ----------------- | ---------------------------------------------------------------- |
-| `User`            | `telegramId` — **String**: id не влезает в 2^53; `role` строкой, но для `ADMIN` источник истины — env, не БД |
+| `User`            | `telegramId` — **String**: id не влезает в 2^53; `role` строкой, но для `ADMIN` источник истины — env, не БД; `displayName` — имя в магазине, отдельно от `firstName` |
 | `ManagerPermission` | одно право = одна строка; уникальна в паре `userId` + `permission` |
 | `Category`        | slug, сортировка, emoji                                          |
 | `Product`         | цена в minor units, `fulfillmentKind`, `staticPayload` (секрет)   |
@@ -240,7 +242,8 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | GET   | `/api/categories`         | нет            | список категорий                 |
 | GET   | `/api/products`           | нет            | каталог, фильтры `category`, `q` |
 | GET   | `/api/products/:slug`     | нет            | карточка товара                  |
-| GET   | `/api/me`                 | initData       | профиль: имя, роль, права, клубный статус |
+| GET   | `/api/me`                 | initData       | профиль: имя, роль, права, клубный статус, `createdAt`, ссылка на канал |
+| PATCH | `/api/me`                 | initData       | переименовать себя в магазине (`displayName`) |
 | GET   | `/api/orders`             | initData       | свои заказы (до 50)              |
 | GET   | `/api/orders/:id`         | initData       | свой заказ, иначе 404            |
 | POST  | `/api/orders`             | initData       | создать заказ + инвойс (20/мин)  |
@@ -307,6 +310,17 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
   именно это выдаёт в Mini App веб-страницу.
 - **Клиентское состояние** — Zustand + persist (`shop-cart-v1`). Цена в
   корзине только для показа; сервер всё пересчитывает.
+- **Производные объекты нельзя считать внутри селектора Zustand.** Селектор,
+  возвращающий новый объект на каждый вызов, сравнивается по ссылке — стор
+  «всегда изменён», ререндер бесконечный, React снимает дерево и остаётся чёрный
+  экран. Так уже ломалась корзина: считай из уже подписанного `lines`
+  (`cartTotalsFor`) или мемоизируй.
+- **Позиция прокрутки** — `hooks/useScrollRestoration.ts`, ключ на экран и на
+  фильтр (`catalog:all`, `catalog:<slug>`, `orders`). Экраны при навигации
+  размонтируются, поэтому позиция живёт в module-level `Map`, а не в state.
+  Восстановление ждёт данные и два кадра: до layout документ ещё короткий и
+  `scrollTo` не доедет. Тап по активной вкладке возвращает наверх — иначе
+  восстановленный скролл превращается в ловушку.
 - **Тема** — `themeParams` Telegram проецируются в CSS-переменные
   (`--tg-bg-color` и т.д.), поэтому приложение выглядит родным в любой теме.
 - Вне Telegram приложение работает и показывает баннер: оплата недоступна,
@@ -408,17 +422,18 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 9. Тесты
 
-132 теста, чистый `node:test` через `tsx`, без Jest/Vitest.
+146 тестов, чистый `node:test` через `tsx`, без Jest/Vitest.
 
 | Файл                                     | Что проверяет                                     |
 | ---------------------------------------- | ------------------------------------------------- |
 | `apps/api/src/telegram/init-data.test.ts` | 14 тестов подписи: подмена, `signature`, срок, порядок |
-| `apps/api/src/server.test.ts`             | 21 e2e через `app.inject()` на временной SQLite    |
+| `apps/api/src/server.test.ts`             | 27 e2e через `app.inject()` на временной SQLite    |
 | `apps/api/src/plugins/auth.test.ts`       | 15 тестов авторизации: роли, права, инвариант `ADMIN_TELEGRAM_IDS` |
 | `apps/api/src/routes/admin.test.ts`       | 55 тестов управления: 30 на защиту каждого роута, остальные на CRUD |
 | `apps/api/src/pricing.test.ts`            | 10 тестов клубного тарифа: направление `P / 0.95`, целые числа, округление на единицу |
 | `apps/api/src/telegram/membership.test.ts` | 9 тестов членства: статусы, кеш, сброс, сбои Bot API |
 | `apps/api/src/telegram/onboarding.test.ts` | 7 тестов копирайта /start и расписания опроса подписки |
+| `apps/api/src/profile.test.ts`            | 8 тестов «дней с нами» и имени: округление вниз, склонение, обрезка |
 
 Покрыты именно инварианты: цена не берётся с клиента, чужой заказ → 404,
 перепродажа ключей невозможна, повтор платежа не выдаёт второй ключ,

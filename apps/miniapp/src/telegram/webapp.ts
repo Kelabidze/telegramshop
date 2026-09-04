@@ -196,32 +196,39 @@ export function openInvoice(url: string): Promise<InvoiceStatus> {
 /**
  * The club channel a membership is checked against.
  *
- * Configured, not hardcoded: the same bundle serves staging and production, and
- * the id the API verifies against lives in its own env. An empty value means
- * "not configured", and every entry point that would link there hides itself
- * rather than opening a dead link.
+ * The authoritative value now arrives with `/api/me` (`viewer.clubChannelUrl`),
+ * because that is the link the *server* verifies membership against. The build
+ * variable stays as a fallback for a viewer that failed to load, but it can only
+ * be a stale copy: whoever has the viewer should pass its url in.
  */
-const CLUB_CHANNEL_URL = import.meta.env.VITE_CLUB_CHANNEL_URL ?? '';
+const CLUB_CHANNEL_URL_FALLBACK = import.meta.env.VITE_CLUB_CHANNEL_URL ?? '';
+
+/** Set once the profile arrives, so every link points at the same channel. */
+let clubChannelUrl = CLUB_CHANNEL_URL_FALLBACK;
+
+export function setClubChannelUrl(url: string | null): void {
+  clubChannelUrl = url ?? '';
+}
 
 export const openChannel = {
   isAvailable(): boolean {
-    return CLUB_CHANNEL_URL.length > 0;
+    return clubChannelUrl.length > 0;
   },
   /** The link itself, for rendering as text. Empty means not configured. */
   url(): string {
-    return CLUB_CHANNEL_URL;
+    return clubChannelUrl;
   },
   /**
    * `openTelegramLink` keeps the user inside Telegram; `window.open` is the
    * browser fallback so the link still works outside the Mini App.
    */
   open(): void {
-    if (!CLUB_CHANNEL_URL) return;
+    if (!clubChannelUrl) return;
     const app = getWebApp();
     if (app?.isVersionAtLeast('6.1')) {
-      app.openTelegramLink(CLUB_CHANNEL_URL);
+      app.openTelegramLink(clubChannelUrl);
       return;
     }
-    window.open(CLUB_CHANNEL_URL, '_blank', 'noopener,noreferrer');
+    window.open(clubChannelUrl, '_blank', 'noopener,noreferrer');
   },
 };

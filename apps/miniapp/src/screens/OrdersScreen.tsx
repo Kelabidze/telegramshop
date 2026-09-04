@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { formatMoney, type Order } from '@shop/shared';
 import { api } from '../api/client.ts';
 import { EmptyState, ErrorState, Spinner } from '../components/ui.tsx';
+import { useScrollRestoration } from '../hooks/useScrollRestoration.ts';
 
 const STATUS_LABEL: Record<Order['status'], string> = {
   PENDING: 'Ожидает оплаты',
@@ -23,6 +24,10 @@ export function OrdersScreen({
     refetchInterval: (q) =>
       q.state.data?.some((o) => o.status === 'PENDING') ? 3000 : false,
   });
+
+  // Orders carry keys and links, so this list gets scrolled through and
+  // returned to just as often as the catalog.
+  useScrollRestoration('orders', query.data !== undefined);
 
   if (query.isPending) return <Spinner label="Загружаем заказы…" />;
   if (query.isError) {

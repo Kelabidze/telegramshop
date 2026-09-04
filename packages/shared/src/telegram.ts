@@ -69,6 +69,46 @@ export type Permission = z.infer<typeof permissionSchema>;
 export const PERMISSIONS = permissionSchema.options;
 
 /**
+ * Full days since the user first opened the shop.
+ *
+ * Floors, so the first day reads as 0 rather than rounding up to "1 день" for
+ * somebody who arrived a minute ago. Negative results are clamped: a clock skew
+ * between server and client must not produce "с нами -1 день".
+ */
+export function daysSince(iso: string, now: Date = new Date()): number {
+  const started = new Date(iso).getTime();
+  if (!Number.isFinite(started)) return 0;
+  const elapsedMs = now.getTime() - started;
+  return Math.max(0, Math.floor(elapsedMs / 86_400_000));
+}
+
+/**
+ * The name to render for a viewer: the shop-local override, or the Telegram one.
+ *
+ * Lives next to `Viewer` rather than in a screen, because the header, the
+ * profile and any future admin list must all resolve it identically — two
+ * implementations would drift and show a renamed user under two names at once.
+ */
+export function viewerDisplayName(viewer: {
+  displayName?: string | null;
+  firstName: string;
+  lastName?: string | null;
+}): string {
+  const custom = viewer.displayName?.trim();
+  if (custom) return custom;
+  return [viewer.firstName, viewer.lastName].filter(Boolean).join(' ').trim();
+}
+
+/** Russian plural for «день»: 1 день, 2 дня, 5 дней. */
+export function pluralDays(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'день';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'дня';
+  return 'дней';
+}
+
+/**
  * Marker the bot puts on the "я подписался" button's URL, and which the Mini
  * App sends back to ask for a fresh membership lookup.
  *
@@ -87,6 +127,26 @@ export const PERMISSIONS = permissionSchema.options;
  */
 export const CLUB_RECHECK_PARAM = 'club_check';
 
+/**
+ * Display name the user chose inside the shop.
+ *
+ * Separate from `firstName`, which mirrors Telegram and is overwritten on every
+ * login: storing the custom name there would make it vanish at the next
+ * `upsertUser`. Trimmed and length-capped because it is rendered in the header
+ * and in the profile.
+ */
+export const displayNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Имя не может быть пустым')
+  .max(32, 'Не длиннее 32 символов');
+
+/** Body of `PATCH /api/me`. `null` clears the override, back to Telegram. */
+export const profileUpdateSchema = z.object({
+  displayName: displayNameSchema.nullable(),
+});
+export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
+
 /** The authenticated caller, as resolved by the API. */
 export const viewerSchema = z.object({
   id: z.string(),
@@ -95,6 +155,21 @@ export const viewerSchema = z.object({
   lastName: z.string().nullable(),
   username: z.string().nullable(),
   languageCode: z.string().nullable(),
+  /** Shop-local override of the name. `null` means "use the Telegram one". */
+  displayName: z.string().nullable().default(null),
+  /**
+   * First time this user opened the shop, ISO 8601. Drives the "с нами N дней"
+   * line, so it comes from the server: a client clock is trivially wrong.
+   */
+  createdAt: z.string().datetime(),
+  /**
+   * Invite link to the club channel, or `null` when the feature is off.
+   *
+   * Served with the profile rather than baked into the bundle: the link must
+   * always match the channel the API actually verifies membership against, and
+   * a build-time copy silently disagrees the moment the channel changes.
+   */
+  clubChannelUrl: z.string().nullable().default(null),
   role: userRoleSchema,
   /**
    * Granted permissions. Unknown strings in the database are dropped rather

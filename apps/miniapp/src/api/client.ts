@@ -8,6 +8,7 @@ import type {
   ProductListItem,
   Viewer,
 } from '@shop/shared';
+
 import { CLUB_RECHECK_PARAM } from '@shop/shared';
 import { getInitData } from '../telegram/webapp.ts';
 
@@ -140,6 +141,13 @@ async function request<T>(
 
 export const api = {
   getViewer: () => request<{ viewer: Viewer }>('/api/me').then((r) => r.viewer),
+
+  /** Renames the caller inside the shop. `null` restores the Telegram name. */
+  updateDisplayName: (displayName: string | null) =>
+    request<{ viewer: Viewer }>('/api/me', {
+      method: 'PATCH',
+      body: { displayName },
+    }).then((r) => r.viewer),
 
   listCategories: () =>
     request<{ categories: Category[] }>('/api/categories').then(

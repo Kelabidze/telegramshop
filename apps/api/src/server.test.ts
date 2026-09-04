@@ -207,6 +207,103 @@ describe('authentication', () => {
     assert.equal(res.json().viewer.isSubscribedChannel, false);
   });
 
+  it('renames the caller and keeps the name across logins', async () => {
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      headers: authHeader(),
+      payload: { displayName: '  Фин  ' },
+    });
+    assert.equal(renamed.statusCode, 200);
+    assert.equal(renamed.json().viewer.displayName, 'Фин', 'trimmed');
+
+    // The critical part: `upsertUser` rewrites the Telegram fields on every
+    // request, so a custom name stored in `firstName` would vanish here.
+    const reread = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: authHeader(),
+    });
+    assert.equal(reread.json().viewer.displayName, 'Фин');
+    assert.equal(
+      reread.json().viewer.firstName,
+      'Tester',
+      'the Telegram name is untouched by a shop rename',
+    );
+  });
+
+  it('rejects an empty or oversized display name', async () => {
+    for (const displayName of ['', '   ', 'x'.repeat(33)]) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/me',
+        headers: authHeader(),
+        payload: { displayName },
+      });
+      assert.equal(res.statusCode, 400, `must reject ${JSON.stringify(displayName)}`);
+      assert.equal(res.json().error.code, 'VALIDATION_ERROR');
+    }
+  });
+
+  it('clears the override with null, falling back to Telegram', async () => {
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      headers: authHeader(),
+      payload: { displayName: 'Временное' },
+    });
+    const cleared = await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      headers: authHeader(),
+      payload: { displayName: null },
+    });
+    assert.equal(cleared.statusCode, 200);
+    assert.equal(cleared.json().viewer.displayName, null);
+  });
+
+  it('cannot rename anybody else: PATCH acts on the signed caller only', async () => {
+    // There is no id in the path or the body, so the only account reachable is
+    // the one that signed the request. Asserted so nobody "helpfully" adds one.
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      headers: authHeader('555000333'),
+      payload: { displayName: 'Чужое имя' },
+    });
+
+    const mine = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: authHeader(TG_ID),
+    });
+    assert.notEqual(mine.json().viewer.displayName, 'Чужое имя');
+  });
+
+  it('requires a signature to rename', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      payload: { displayName: 'Аноним' },
+    });
+    assert.equal(res.statusCode, 401);
+  });
+
+  it('reports when the user first opened the shop', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: authHeader(),
+    });
+    // Drives the "с нами N дней" line, so it must be a parseable timestamp from
+    // the server rather than something the client invents.
+    const { createdAt } = res.json().viewer;
+    assert.ok(
+      Number.isFinite(new Date(createdAt).getTime()),
+      `createdAt must be a valid ISO date, got ${String(createdAt)}`,
+    );
+  });
+
   it('accepts the membership recheck header without changing the answer', async () => {
     // The "Я подписался!" button makes the client send this header. It may only
     // force a fresh getChatMember lookup — never grant membership by itself,

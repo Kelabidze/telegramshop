@@ -154,10 +154,20 @@ export function selectItemCount(state: CartState): number {
  * items sit in localStorage. Deriving the payable amount on render means
  * subscribing to the channel updates the total on the next paint, and the same
  * shared function runs on the server at checkout — so the invoice matches.
+ *
+ * Takes `lines` instead of being a Zustand selector. `useCart(selectTotals(x))`
+ * looked tidier but froze the whole app: the selector built a fresh object on
+ * every call, Zustand compares selector output by reference, so it concluded the
+ * store had changed, re-rendered, built another object — an infinite loop that
+ * React ends by unmounting the tree, leaving a black screen. Anything deriving
+ * an object from the store must either memoise or, as here, be a plain function
+ * of already-subscribed state.
  */
-export function selectTotals(isSubscribedChannel: boolean) {
-  return (state: CartState): CartTotals =>
-    cartTotals(state.lines, isSubscribedChannel);
+export function cartTotalsFor(
+  lines: readonly CartLine[],
+  isSubscribedChannel: boolean,
+): CartTotals {
+  return cartTotals(lines, isSubscribedChannel);
 }
 
 /** The cart currency, or null when empty. */

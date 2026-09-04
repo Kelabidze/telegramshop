@@ -126,6 +126,8 @@ interface UserRow {
   lastName: string | null;
   username: string | null;
   languageCode: string | null;
+  displayName: string | null;
+  createdAt: Date;
   role: string;
   isAdmin: boolean;
   managerPermissions: Array<{ permission: string }>;
@@ -206,6 +208,11 @@ function toViewer(
     lastName: user.lastName,
     username: user.username,
     languageCode: user.languageCode,
+    displayName: user.displayName,
+    createdAt: user.createdAt.toISOString(),
+    // Sent with the profile so the app links to the very channel this server
+    // checks membership against; `null` hides every entry point.
+    clubChannelUrl: config.clubChannel.url || null,
     role,
     // Rows are validated, not trusted: a permission removed from the code must
     // stop granting access even while its row still exists in the database.

@@ -1,14 +1,21 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Viewer } from '@shop/shared';
-import { CLUB_TIER_PERCENT } from '@shop/shared';
-import { api } from '../api/client.ts';
+import {
+  CLUB_TIER_PERCENT,
+  daysSince,
+  displayNameSchema,
+  pluralDays,
+  viewerDisplayName,
+} from '@shop/shared';
+import { ApiError, api } from '../api/client.ts';
 import { ClubChannelLink, EmptyState } from '../components/ui.tsx';
-import { openChannel } from '../telegram/webapp.ts';
+import { haptic, openChannel } from '../telegram/webapp.ts';
 
-const ROLE_LABEL: Record<Viewer['role'], string> = {
+/** Only staff see their role; for a buyer it is noise. */
+const STAFF_ROLE_LABEL: Partial<Record<Viewer['role'], string>> = {
   ADMIN: 'Администратор',
   MANAGER: 'Менеджер',
-  USER: 'Покупатель',
 };
 
 /**
@@ -60,10 +67,13 @@ export function ProfileScreen({
     );
   }
 
-  const name = [viewer.firstName, viewer.lastName].filter(Boolean).join(' ');
-  const initial = [...viewer.firstName.trim()][0] ?? '👋';
+  const name = viewerDisplayName(viewer);
+  const initial = [...name][0] ?? '👋';
   const paidOrders =
     ordersQuery.data?.filter((order) => order.status === 'PAID').length ?? null;
+
+  const days = daysSince(viewer.createdAt);
+  const staffRole = STAFF_ROLE_LABEL[viewer.role];
 
   return (
     <div className="page">
@@ -77,7 +87,12 @@ export function ProfileScreen({
         {viewer.username ? (
           <p className="subtitle">@{viewer.username}</p>
         ) : null}
+        <p className="profile-hero__tenure">
+          Ты с нами {days} {pluralDays(days)}!
+        </p>
       </div>
+
+      <RenamePanel viewer={viewer} />
 
       <h2 className="section-title">Клубный статус</h2>
 
@@ -117,7 +132,8 @@ export function ProfileScreen({
       <h2 className="section-title">Данные аккаунта</h2>
 
       <div className="card stack" style={{ gap: 10 }}>
-        <InfoRow label="Роль" value={ROLE_LABEL[viewer.role]} />
+        {/* Role only for staff: telling a buyer they are a "Покупатель" is noise. */}
+        {staffRole ? <InfoRow label="Роль" value={staffRole} /> : null}
         <InfoRow label="Telegram ID" value={viewer.telegramId} />
         {paidOrders !== null ? (
           <InfoRow label="Оплаченных заказов" value={String(paidOrders)} />
@@ -125,8 +141,126 @@ export function ProfileScreen({
       </div>
 
       <p className="hint" style={{ marginTop: 16 }}>
-        Данные берутся из вашего профиля Telegram и обновляются автоматически.
+        Имя в магазине можно изменить выше — в Telegram оно останется прежним.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Collapsed rename control.
+ *
+ * Collapsed by default so the profile does not open as a form: renaming is a
+ * rare action, and an always-visible input invites accidental edits.
+ */
+function RenamePanel({ viewer }: { viewer: Viewer }) {
+  const [isOpen, setOpen] = useState(false);
+  const [value, setValue] = useState(() => viewerDisplayName(viewer));
+  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (next: string | null) => api.updateDisplayName(next),
+    onSuccess: (updated) => {
+      // Written straight into the cache: the header reads the same `['me']`
+      // entry, so it renames in the same frame instead of after a refetch.
+      queryClient.setQueryData(['me'], updated);
+      haptic('success');
+      setOpen(false);
+      setError(null);
+    },
+    onError: (err) => {
+      haptic('error');
+      setError(
+        err instanceof ApiError ? err.message : 'Не удалось сохранить имя.',
+      );
+    },
+  });
+
+  if (!isOpen) {
+    return (
+      <button
+        type="button"
+        className="button button--secondary profile-rename__toggle"
+        onClick={() => {
+          haptic('tap');
+          setValue(viewerDisplayName(viewer));
+          setError(null);
+          setOpen(true);
+        }}
+      >
+        Изменить имя в магазине
+      </button>
+    );
+  }
+
+  function submit() {
+    const parsed = displayNameSchema.safeParse(value);
+    if (!parsed.success) {
+      // Validated with the same schema the server uses, so the message the user
+      // sees is the rule that will actually be enforced.
+      setError(parsed.error.issues[0]?.message ?? 'Имя не подходит.');
+      return;
+    }
+    mutation.mutate(parsed.data);
+  }
+
+  return (
+    <div className="card stack profile-rename">
+      <label className="hint" htmlFor="display-name">
+        Как вас называть в магазине
+      </label>
+      <input
+        id="display-name"
+        className="input"
+        value={value}
+        maxLength={32}
+        autoComplete="off"
+        onChange={(event) => {
+          setValue(event.target.value);
+          setError(null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') submit();
+        }}
+      />
+      {error ? (
+        <p className="hint" style={{ margin: 0, color: 'var(--tg-destructive-text-color)' }}>
+          {error}
+        </p>
+      ) : null}
+      <div className="row">
+        <button
+          type="button"
+          className="button"
+          disabled={mutation.isPending}
+          onClick={submit}
+        >
+          {mutation.isPending ? 'Сохраняем…' : 'Сохранить'}
+        </button>
+        <button
+          type="button"
+          className="button button--secondary"
+          disabled={mutation.isPending}
+          onClick={() => {
+            setOpen(false);
+            setError(null);
+          }}
+        >
+          Отмена
+        </button>
+        <div className="spacer" />
+        {viewer.displayName ? (
+          <button
+            type="button"
+            className="button button--danger"
+            disabled={mutation.isPending}
+            onClick={() => mutation.mutate(null)}
+          >
+            Сбросить
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

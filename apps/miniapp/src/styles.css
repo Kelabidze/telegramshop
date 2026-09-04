@@ -354,6 +354,40 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* ---------- rename ---------- */
+
+.profile-rename__toggle {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.profile-rename {
+  margin-top: 16px;
+}
+
+.input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--tg-secondary-bg-color);
+  background: var(--tg-bg-color);
+  color: var(--tg-text-color);
+  font: inherit;
+  font-size: 16px;
+}
+
+.input:focus {
+  outline: 2px solid var(--tg-button-color);
+  outline-offset: -2px;
+}
+
+.profile-hero__tenure {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tg-link-color);
+}
+
 /* ---------- profile ---------- */
 
 .profile-hero {

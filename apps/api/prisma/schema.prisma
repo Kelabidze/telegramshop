@@ -30,6 +30,9 @@ model User {
   lastName     String?
   username     String?
   languageCode String?
+  /// Name the user picked inside the shop. Null = show the Telegram one.
+  /// Kept apart from `firstName`, which every login overwrites from Telegram.
+  displayName  String?
   isPremium    Boolean  @default(false)
   /// ADMIN | MANAGER | USER. Stored as String for SQLite/Postgres parity.
   role         String   @default("USER")
