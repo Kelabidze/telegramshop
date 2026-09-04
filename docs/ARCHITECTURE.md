@@ -58,6 +58,7 @@ apps/api/
     telegram/bot.ts          единственный инстанс grammY Bot (или null)
     telegram/init-data.ts    HMAC-проверка подписи Telegram
     telegram/membership.ts   getChatMember + in-memory кеш членства в канале
+    telegram/onboarding.ts   /start и «Я подписался!»: тексты, клавиатуры, опрос
     generated/prisma/        вывод prisma generate — НЕ РЕДАКТИРОВАТЬ
 
 apps/miniapp/src/
@@ -235,7 +236,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 | Метод | Путь                      | Авторизация    | Назначение                       |
 | ----- | ------------------------- | -------------- | -------------------------------- |
-| GET   | `/health`                 | нет            | проверка живости + конфиг        |
+| GET   | `/health`                 | нет            | живость + `botConfigured`, `clubChannelConfigured` |
 | GET   | `/api/categories`         | нет            | список категорий                 |
 | GET   | `/api/products`           | нет            | каталог, фильтры `category`, `q` |
 | GET   | `/api/products/:slug`     | нет            | карточка товара                  |
@@ -353,17 +354,24 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 - **Падает «закрыто»**: любая ошибка → «не подписан». Функция не бросает вообще,
   иначе `/api/me` падал бы вместе с Telegram. Падать «открыто» хуже — сетевая
   икота выдала бы скидку всем.
+- **Ошибки больше не глотаются одинаково.** «user not found» — штатный
+  неподписчик, без лога. «chat not found» / `CHAT_ID_INVALID` / 403 (бот не
+  админ) — warn один раз за жизнь процесса, с самим `channelId`. Раньше любой
+  400 выглядел как «проверку никто не вызывает».
+- При старте и в `/health` видно, включена ли проверка (`clubChannelConfigured`).
+  Без этого «фича выключена» неотличима от «Telegram отказал».
 - Сбой транспорта **не кешируется**, ответ Telegram (включая «user not found») —
   кешируется: первое временно, второе — реальный ответ.
 - `restricted` не считается членством: пользователь известен каналу, но не
   состоит в нём.
-- Заголовок `x-club-recheck: 1` заставляет перепроверить, минуя кеш. Его ставит
-  клиент, увидев в своём URL параметр `club_check` (`CLUB_RECHECK_PARAM`), —
-  так работает кнопка «Я подписался!». Это подсказка, не авторизация: ответ всё
-  равно даёт `getChatMember`.
-- `start_param` Telegram для этого не годится: он заполняется только для прямых
-  ссылок `t.me/bot/app?startapp=` и меню вложений, но не для inline-кнопки
-  `web_app`. Поэтому маркер едет обычным query-параметром.
+- Заголовок `x-club-recheck: 1` заставляет Mini App перепроверить, минуя кеш.
+  Его ставит клиент, увидев в своём URL параметр `club_check`. Это подсказка,
+  не авторизация: ответ всё равно даёт `getChatMember`.
+- Кнопка «Я подписался!» в боте — **callback**, не Mini App. Проверка идёт в
+  чате (`telegram/onboarding.ts`): при отказе сообщение заменяется, через 3 с
+  стартует опрос каждые 3 с в течение 15 с. Перед каждым тиком кеш сбрасывается,
+  иначе 15-секундный TTL «не подписан» сделал бы опрос бесполезным.
+- `start_param` Telegram для кнопки в чате не нужен: проверка живёт в боте.
 - Выключается пустым `CLUB_CHANNEL_ID`: тогда `getChatMember` не вызывается и все
   платят стандартную цену.
 
@@ -400,7 +408,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 9. Тесты
 
-124 теста, чистый `node:test` через `tsx`, без Jest/Vitest.
+132 теста, чистый `node:test` через `tsx`, без Jest/Vitest.
 
 | Файл                                     | Что проверяет                                     |
 | ---------------------------------------- | ------------------------------------------------- |
@@ -410,6 +418,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | `apps/api/src/routes/admin.test.ts`       | 55 тестов управления: 30 на защиту каждого роута, остальные на CRUD |
 | `apps/api/src/pricing.test.ts`            | 10 тестов клубного тарифа: направление `P / 0.95`, целые числа, округление на единицу |
 | `apps/api/src/telegram/membership.test.ts` | 9 тестов членства: статусы, кеш, сброс, сбои Bot API |
+| `apps/api/src/telegram/onboarding.test.ts` | 7 тестов копирайта /start и расписания опроса подписки |
 
 Покрыты именно инварианты: цена не берётся с клиента, чужой заказ → 404,
 перепродажа ключей невозможна, повтор платежа не выдаёт второй ключ,
@@ -462,7 +471,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | Клубный статус пользователя        | `shared/src/telegram.ts` (`isSubscribedChannel`) → `plugins/auth.ts` → `api/useViewer.ts` |
 | Корзина                            | `store/cart.ts`, `screens/CartScreen.tsx`                               |
 | Вызовы Telegram WebApp             | `telegram/webapp.ts`, `telegram/buttons.ts`                             |
-| Сообщения и команды бота           | `routes/bot.ts`                                                         |
+| Сообщения и команды бота           | `routes/bot.ts`, `telegram/onboarding.ts`                               |
 | Переменные окружения               | `config.ts`, `apps/api/.env.example`, `deploy/setup-server.sh`           |
 | Деплой, Caddy, systemd             | `deploy/*`, `.github/workflows/deploy.yml`, `docs/DEPLOYMENT.md`         |
 | Состав артефакта для сервера       | `deploy/pack-artifact.mjs`                                              |

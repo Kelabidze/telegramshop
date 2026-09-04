@@ -119,6 +119,10 @@ export async function buildServer() {
       env: config.env,
       payments: config.paymentProvider,
       botConfigured: config.telegram.hasBotToken,
+      // Whether membership checks run at all. No secrets: the id itself is not
+      // returned — knowing it is configured is enough to tell "feature off" from
+      // "Telegram refused" when diagnosing a silent /api/me.
+      clubChannelConfigured: config.clubChannel.enabled,
       devAuth: config.devAuthEnabled,
     };
   });
@@ -158,6 +162,23 @@ async function main() {
     if (config.devAuthEnabled) {
       app.log.warn(
         'ALLOW_DEV_AUTH is enabled: requests may authenticate without a Telegram signature. Development only.',
+      );
+    }
+    // Membership is the silent half of the club rate: without this line a
+    // missing CLUB_CHANNEL_ID looks exactly like a working feature that just
+    // never finds any members. Log once at boot so the journal answers the
+    // question before the first /api/me does.
+    if (config.clubChannel.enabled) {
+      app.log.info(
+        {
+          channelId: config.clubChannel.id,
+          ttlSeconds: config.clubChannel.membershipTtlMs / 1000,
+        },
+        'Club channel membership checks enabled',
+      );
+    } else {
+      app.log.warn(
+        'Club channel is not configured (CLUB_CHANNEL_ID empty); everyone pays the standard price.',
       );
     }
   } catch (error) {

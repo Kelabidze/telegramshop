@@ -115,7 +115,12 @@ describe('health & catalog', () => {
   it('reports health', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' });
     assert.equal(res.statusCode, 200);
-    assert.equal(res.json().ok, true);
+    const body = res.json();
+    assert.equal(body.ok, true);
+    // No club channel is configured in this suite: the flag must still be
+    // present so a silent "feature off" is distinguishable from a Telegram
+    // refusal when diagnosing production.
+    assert.equal(body.clubChannelConfigured, false);
   });
 
   it('lists products publicly with stock and without description', async () => {

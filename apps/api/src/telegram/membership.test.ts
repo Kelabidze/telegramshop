@@ -174,6 +174,34 @@ describe('isClubChannelMember', () => {
     assert.equal(await isClubChannelMember('5001'), false);
   });
 
+  it('fails closed and warns when the channel id itself is wrong', async () => {
+    // Distinct from "user not found": a typo in CLUB_CHANNEL_ID used to look
+    // identical because every 400 was swallowed. The warn must fire so a wrong
+    // id is visible in the journal instead of inferred from missing discounts.
+    const warnings: string[] = [];
+    nextResponse = {
+      kind: 'json',
+      status: 400,
+      body: {
+        ok: false,
+        error_code: 400,
+        description: 'Bad Request: chat not found',
+      },
+    };
+    assert.equal(
+      await isClubChannelMember('5003', {
+        warn: (_payload, message) => {
+          warnings.push(message);
+        },
+      }),
+      false,
+    );
+    assert.ok(
+      warnings.some((m) => /cannot see the club channel/i.test(m)),
+      `expected a channel-misconfiguration warn, got: ${JSON.stringify(warnings)}`,
+    );
+  });
+
   it('fails closed when the bot is not an admin of the channel', async () => {
     // A misconfiguration, not a user state. It must not grant the club rate:
     // failing open would hand a reduced price to everybody the moment the bot
