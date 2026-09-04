@@ -109,7 +109,9 @@ export function App() {
         // tab bars behave. Without it a restored offset would be a trap: there
         // would be no way back to the top but dragging.
         if (current.name === tab) {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          // The scroll listener in `useScrollRestoration` records 0 right after
+          // this, so the screen also stops trying to restore the old offset.
+          window.scrollTo(0, 0);
           return;
         }
         // Selecting a tab always resets the stack, so it doubles as the exit

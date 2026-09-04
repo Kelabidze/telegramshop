@@ -33,6 +33,8 @@ export function ProfileScreen({
   viewer: Viewer | null;
   isPending: boolean;
 }) {
+  const [isRenaming, setRenaming] = useState(false);
+
   // Order count is the one piece of profile data not already in `['me']`.
   // Enabled only for an identified viewer: without a signature it is a 401.
   const ordersQuery = useQuery({
@@ -81,9 +83,27 @@ export function ProfileScreen({
         <div className="profile-hero__avatar" aria-hidden="true">
           {initial}
         </div>
-        <h1 className="title" style={{ marginTop: 12 }}>
-          {name}
-        </h1>
+        <div className="profile-hero__name-row">
+          <h1 className="title" style={{ margin: 0 }}>
+            {name}
+          </h1>
+          {/*
+            Next to the name rather than a full-width button below it: renaming
+            acts on the name, and putting the control anywhere else makes the
+            reader hunt for what it applies to.
+          */}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Изменить имя в магазине"
+            onClick={() => {
+              haptic('tap');
+              setRenaming(true);
+            }}
+          >
+            <PencilIcon />
+          </button>
+        </div>
         {viewer.username ? (
           <p className="subtitle">@{viewer.username}</p>
         ) : null}
@@ -92,7 +112,9 @@ export function ProfileScreen({
         </p>
       </div>
 
-      <RenamePanel viewer={viewer} />
+      {isRenaming ? (
+        <RenamePanel viewer={viewer} onClose={() => setRenaming(false)} />
+      ) : null}
 
       <h2 className="section-title">Клубный статус</h2>
 
@@ -141,20 +163,47 @@ export function ProfileScreen({
       </div>
 
       <p className="hint" style={{ marginTop: 16 }}>
-        Имя в магазине можно изменить выше — в Telegram оно останется прежним.
+        Имя в магазине меняется по карандашу рядом с ним — в Telegram оно
+        останется прежним.
       </p>
     </div>
   );
 }
 
+/** Pencil glyph as inline SVG: no icon font, and it follows `currentColor`. */
+function PencilIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  );
+}
+
 /**
- * Collapsed rename control.
+ * Rename form, opened by the pencil next to the name.
  *
- * Collapsed by default so the profile does not open as a form: renaming is a
- * rare action, and an always-visible input invites accidental edits.
+ * Mounted only while renaming: an always-visible input invites accidental edits
+ * to something as identity-shaped as a name.
  */
-function RenamePanel({ viewer }: { viewer: Viewer }) {
-  const [isOpen, setOpen] = useState(false);
+function RenamePanel({
+  viewer,
+  onClose,
+}: {
+  viewer: Viewer;
+  onClose: () => void;
+}) {
   const [value, setValue] = useState(() => viewerDisplayName(viewer));
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -166,8 +215,8 @@ function RenamePanel({ viewer }: { viewer: Viewer }) {
       // entry, so it renames in the same frame instead of after a refetch.
       queryClient.setQueryData(['me'], updated);
       haptic('success');
-      setOpen(false);
       setError(null);
+      onClose();
     },
     onError: (err) => {
       haptic('error');
@@ -176,23 +225,6 @@ function RenamePanel({ viewer }: { viewer: Viewer }) {
       );
     },
   });
-
-  if (!isOpen) {
-    return (
-      <button
-        type="button"
-        className="button button--secondary profile-rename__toggle"
-        onClick={() => {
-          haptic('tap');
-          setValue(viewerDisplayName(viewer));
-          setError(null);
-          setOpen(true);
-        }}
-      >
-        Изменить имя в магазине
-      </button>
-    );
-  }
 
   function submit() {
     const parsed = displayNameSchema.safeParse(value);
@@ -243,8 +275,8 @@ function RenamePanel({ viewer }: { viewer: Viewer }) {
           className="button button--secondary"
           disabled={mutation.isPending}
           onClick={() => {
-            setOpen(false);
             setError(null);
+            onClose();
           }}
         >
           Отмена

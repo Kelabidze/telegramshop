@@ -62,7 +62,9 @@ export function CatalogScreen({
     haptic('selection');
     forgetScrollPosition(`catalog:${next ?? 'all'}`);
     setCategory(next);
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    // Two-argument form: older Telegram WebViews drop an options object whose
+    // `behavior` they do not recognise, and then do not scroll at all.
+    window.scrollTo(0, 0);
   };
 
   const selectedTitle = useMemo(

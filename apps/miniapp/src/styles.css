@@ -356,13 +356,45 @@ body {
 
 /* ---------- rename ---------- */
 
-.profile-rename__toggle {
-  width: 100%;
+.profile-rename {
   margin-top: 16px;
 }
 
-.profile-rename {
-  margin-top: 16px;
+/* Name and its edit affordance on one line, centred as a pair. */
+.profile-hero__name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  /* A long name must not push the pencil off the screen. */
+  max-width: 100%;
+}
+
+.profile-hero__name-row .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-button {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  /* 32px is below the 44px touch-target guidance, so the tap area is padded
+     out with a transparent ring rather than by making the glyph bigger. */
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--tg-secondary-bg-color);
+  color: var(--tg-link-color);
+  cursor: pointer;
+}
+
+.icon-button:active {
+  background: var(--tg-section-bg-color);
 }
 
 .input {
