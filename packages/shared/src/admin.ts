@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { amountMinorSchema, currencySchema } from './money.js';
 import { cuidSchema, fulfillmentKindSchema, slugSchema } from './catalog.js';
-import { orderStatusSchema } from './order.js';
+import { orderSchema, orderStatusSchema } from './order.js';
 import { permissionSchema } from './telegram.js';
 
 /**
@@ -105,6 +105,17 @@ export const orderCustomerSchema = z.object({
 });
 export type OrderCustomer = z.infer<typeof orderCustomerSchema>;
 
+/**
+ * An order as staff see it: the buyer's own shape plus who placed it.
+ *
+ * Lives in the contract rather than only in the API service, because the admin
+ * screens consume it too — two definitions of the same payload would drift.
+ */
+export const staffOrderSchema = orderSchema.extend({
+  customer: orderCustomerSchema,
+});
+export type StaffOrder = z.infer<typeof staffOrderSchema>;
+
 // ---- staff -----------------------------------------------------------------
 
 /** Manager list entry, as returned to staff. */
@@ -119,6 +130,34 @@ export const managerSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type Manager = z.infer<typeof managerSchema>;
+
+/**
+ * A shop user, as staff see them.
+ *
+ * Broader than `Manager`: buyers appear here too, because appointing a manager
+ * starts with finding an existing customer. `displayName` is the shop-local
+ * override; `firstName` is what Telegram last sent.
+ */
+export const shopUserSchema = z.object({
+  id: cuidSchema,
+  telegramId: z.string(),
+  firstName: z.string(),
+  lastName: z.string().nullable(),
+  displayName: z.string().nullable(),
+  username: z.string().nullable(),
+  role: z.enum(['ADMIN', 'MANAGER', 'USER']),
+  permissions: z.array(permissionSchema),
+  createdAt: z.string().datetime(),
+  orderCount: z.number().int().nonnegative(),
+});
+export type ShopUser = z.infer<typeof shopUserSchema>;
+
+export const shopUserListQuerySchema = z.object({
+  q: z.string().min(1).max(64).optional(),
+  role: z.enum(['ADMIN', 'MANAGER', 'USER']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+export type ShopUserListQuery = z.infer<typeof shopUserListQuerySchema>;
 
 /**
  * Grants manager rights to a Telegram user.

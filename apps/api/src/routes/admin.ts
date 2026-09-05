@@ -10,6 +10,7 @@ import {
   orderListQuerySchema,
   productInputSchema,
   productUpdateSchema,
+  shopUserListQuerySchema,
 } from '@shop/shared';
 import { validationError } from '../errors.js';
 import {
@@ -23,10 +24,12 @@ import {
   createProduct,
   deactivateProduct,
   deleteCategory,
+  listAllProducts,
   updateCategory,
   updateProduct,
 } from '../services/admin-catalog.js';
 import { listAllOrders } from '../services/admin-orders.js';
+import { listShopUsers } from '../services/admin-users.js';
 import {
   listManagers,
   revokeManager,
@@ -140,6 +143,18 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   // ---- products and stock: MANAGE_KEYS -------------------------------------
 
+  /**
+   * `/products/all` cannot collide with `/products/:slug` from `catalog.ts`:
+   * Fastify prefers the static segment. Without this list the admin catalog
+   * would only see `isActive: true` products and could never re-enable a hidden
+   * one.
+   */
+  app.get(
+    '/products/all',
+    { preHandler: app.requirePermission('MANAGE_KEYS') },
+    async () => ({ products: await listAllProducts() }),
+  );
+
   app.post(
     '/products',
     { preHandler: app.requirePermission('MANAGE_KEYS') },
@@ -189,6 +204,20 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // ---- staff: MANAGE_MANAGERS ----------------------------------------------
+
+  /**
+   * Every shop user, not just staff. Appointing a manager starts with finding
+   * a buyer; `GET /api/managers` is the staff roster and stays that.
+   */
+  app.get(
+    '/users',
+    { preHandler: app.requirePermission('MANAGE_MANAGERS') },
+    async (request) => {
+      const query = parse(shopUserListQuerySchema, request.query, 'query');
+      const users = await listShopUsers(query);
+      return { users, count: users.length };
+    },
+  );
 
   app.get(
     '/managers',

@@ -18,10 +18,21 @@ import { CLUB_TIER_PERCENT, viewerDisplayName } from '@shop/shared';
 
 export type TabName = 'catalog' | 'cart' | 'orders';
 
-const TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
+/**
+ * The three tabs keep their identity in both modes; only their label, icon and
+ * content change. Reusing the slots rather than adding staff-only tabs keeps the
+ * navigation stack, the scroll keys and the back button logic untouched.
+ */
+const SHOPPER_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
   { name: 'catalog', label: 'Каталог', icon: '🛍' },
   { name: 'cart', label: 'Корзина', icon: '🛒' },
   { name: 'orders', label: 'Заказы', icon: '📦' },
+];
+
+const STAFF_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
+  { name: 'catalog', label: 'Каталог', icon: '🗂' },
+  { name: 'cart', label: 'Люди', icon: '👥' },
+  { name: 'orders', label: 'Финансы', icon: '💰' },
 ];
 
 export function AppLayout({
@@ -30,6 +41,9 @@ export function AppLayout({
   showHeader,
   activeTab,
   itemCount,
+  isStaffMode,
+  canUseStaffMode,
+  onToggleStaffMode,
   onOpenProfile,
   onSelectTab,
   banner,
@@ -40,16 +54,42 @@ export function AppLayout({
   showHeader: boolean;
   activeTab: TabName;
   itemCount: number;
+  isStaffMode: boolean;
+  canUseStaffMode: boolean;
+  onToggleStaffMode: () => void;
   onOpenProfile: () => void;
   onSelectTab: (tab: TabName) => void;
   banner?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isStaffMode ? ' app-shell--staff' : ''}`}>
       {banner}
 
-      {showHeader ? (
+      {/*
+        The switch lives in the header strip, above the content: it changes what
+        every tab means, so it cannot sit inside one of them.
+      */}
+      {canUseStaffMode ? (
+        <button
+          type="button"
+          className="staff-switch"
+          onClick={onToggleStaffMode}
+          aria-pressed={isStaffMode}
+        >
+          <span className="staff-switch__icon" aria-hidden="true">
+            {isStaffMode ? '🛠' : '🛍'}
+          </span>
+          <span className="staff-switch__text">
+            {isStaffMode ? 'Режим управления' : 'Режим покупателя'}
+          </span>
+          <span className="staff-switch__action">
+            {isStaffMode ? 'В магазин' : 'В управление'}
+          </span>
+        </button>
+      ) : null}
+
+      {showHeader && !isStaffMode ? (
         <ProfileHeader
           viewer={viewer}
           isPending={isViewerPending}
@@ -60,8 +100,10 @@ export function AppLayout({
       <main className="app-shell__content">{children}</main>
 
       <TabBar
+        tabs={isStaffMode ? STAFF_TABS : SHOPPER_TABS}
         active={activeTab}
-        itemCount={itemCount}
+        // The cart badge is meaningless over a staff screen called "Люди".
+        itemCount={isStaffMode ? 0 : itemCount}
         onSelect={onSelectTab}
       />
     </div>
@@ -129,17 +171,19 @@ function ProfileHeader({
 }
 
 function TabBar({
+  tabs,
   active,
   itemCount,
   onSelect,
 }: {
+  tabs: ReadonlyArray<{ name: TabName; label: string; icon: string }>;
   active: TabName;
   itemCount: number;
   onSelect: (tab: TabName) => void;
 }) {
   return (
     <nav className="tab-bar">
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab.name}
           type="button"

@@ -144,10 +144,12 @@ const ACCESS: Array<Call & { needs: Permission }> = [
   { method: 'POST', url: '/api/banners', needs: 'EDIT_CATALOG', body: {} },
   { method: 'PUT', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG', body: {} },
   { method: 'DELETE', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG' },
+  { method: 'GET', url: '/api/products/all', needs: 'MANAGE_KEYS' },
   { method: 'POST', url: '/api/products', needs: 'MANAGE_KEYS', body: {} },
   { method: 'PUT', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS', body: {} },
   { method: 'DELETE', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS' },
   { method: 'GET', url: '/api/orders/all', needs: 'VIEW_ORDERS' },
+  { method: 'GET', url: '/api/users', needs: 'MANAGE_MANAGERS' },
   { method: 'GET', url: '/api/managers', needs: 'MANAGE_MANAGERS' },
   { method: 'POST', url: '/api/managers', needs: 'MANAGE_MANAGERS', body: {} },
   { method: 'DELETE', url: '/api/managers/810000099', needs: 'MANAGE_MANAGERS' },
@@ -518,6 +520,25 @@ describe('product management', () => {
       .products.some((p: { slug: string }) => p.slug === 'admin-product');
     assert.equal(found, false, 'it must be gone from the public catalog');
   });
+
+  it('still lists a deactivated product for staff, without the secret payload', async () => {
+    const res = await call({
+      method: 'GET',
+      url: '/api/products/all',
+      as: IDS.keyManager,
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const item = res
+      .json()
+      .products.find((p: { slug: string }) => p.slug === 'admin-product');
+    assert.ok(item, 'staff must see hidden products or they could never re-enable one');
+    assert.equal(item.isActive, false);
+    assert.equal(
+      'staticPayload' in item,
+      false,
+      'the paid secret must not leak into a staff list',
+    );
+  });
 });
 
 describe('global order list', () => {
@@ -609,6 +630,29 @@ describe('global order list', () => {
 });
 
 describe('staff management', () => {
+  it('lists every shop user, including buyers, for staff', async () => {
+    const res = await call({
+      method: 'GET',
+      url: '/api/users',
+      as: IDS.staffManager,
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const telegramIds = res
+      .json()
+      .users.map((u: { telegramId: string }) => u.telegramId);
+    assert.ok(telegramIds.includes(IDS.buyer), 'buyers must appear');
+    assert.ok(telegramIds.includes(IDS.admin), 'admins must appear');
+  });
+
+  it('does not leak users to a manager who cannot appoint staff', async () => {
+    const res = await call({
+      method: 'GET',
+      url: '/api/users',
+      as: IDS.catalogManager,
+    });
+    assert.equal(res.statusCode, 403);
+  });
+
   it('appoints a manager with permissions', async () => {
     const res = await call({
       method: 'POST',

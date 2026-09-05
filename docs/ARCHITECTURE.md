@@ -55,6 +55,7 @@ apps/api/
     services/banners.ts      баннеры: публичное чтение (не больше 2) и правки
     services/admin-catalog.ts запись каталога: категории, товары, ключи
     services/admin-orders.ts глобальный список заказов (VIEW_ORDERS)
+    services/admin-users.ts  список всех пользователей (MANAGE_MANAGERS)
     services/managers.ts     назначение менеджеров и выдача прав
     services/profile.ts      переименование пользователя в магазине
     services/orders.ts       создание заказа, выдача товара, идемпотентность
@@ -73,6 +74,9 @@ apps/miniapp/src/
   hooks/useScrollRestoration.ts  запоминает позицию прокрутки на экран
   screens/                   CatalogScreen (главная), ProductScreen, CartScreen,
                              OrdersScreen, ProfileScreen
+  screens/admin/             AdminCatalogScreen, AdminUsersScreen,
+                             AdminFinanceScreen — режим управления
+  store/staffMode.ts         флаг режима «управление / покупатель»
   components/AppLayout.tsx   корневой каркас: шапка профиля + нижняя навигация
   components/BannerStrip.tsx промо-полоса над каталогом
   components/ui.tsx          Price, Stepper, Spinner, скелетоны, EmptyState,
@@ -264,7 +268,9 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | POST  | `/api/products`           | `MANAGE_KEYS`  | создать товар + залить ключи     |
 | PUT   | `/api/products/:id`       | `MANAGE_KEYS`  | изменить товар, добавить ключи   |
 | DELETE| `/api/products/:id`       | `MANAGE_KEYS`  | деактивировать (не удалять)      |
+| GET   | `/api/products/all`       | `MANAGE_KEYS`  | все товары, включая скрытые      |
 | GET   | `/api/orders/all`         | `VIEW_ORDERS`  | все заказы + покупатель          |
+| GET   | `/api/users`              | `MANAGE_MANAGERS` | все пользователи, не только персонал |
 | GET   | `/api/managers`           | `MANAGE_MANAGERS` | персонал и их права           |
 | POST  | `/api/managers`           | `MANAGE_MANAGERS` | назначить менеджера, задать права |
 | DELETE| `/api/managers/:telegramId` | `MANAGE_MANAGERS` | снять менеджера → `USER`    |

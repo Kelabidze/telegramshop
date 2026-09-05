@@ -1,7 +1,6 @@
 import {
-  type Order,
-  type OrderCustomer,
   type OrderListQuery,
+  type StaffOrder,
   currencySchema,
   fulfillmentKindSchema,
   orderStatusSchema,
@@ -18,10 +17,8 @@ import { prisma } from '../db.js';
  * being disabled.
  */
 
-/** A staff-facing order: the buyer's own view plus who placed it. */
-export interface StaffOrder extends Order {
-  customer: OrderCustomer;
-}
+/** Re-exported from the contract so both ends agree on the shape. */
+export type { StaffOrder };
 
 /**
  * `deliveredPayload` is included on purpose. Resolving a FAILED delivery means

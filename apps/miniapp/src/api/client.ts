@@ -2,14 +2,21 @@ import type {
   ApiErrorCode,
   Banner,
   Category,
+  CategoryInput,
+  CategoryUpdate,
   CheckoutSession,
   CreateOrderInput,
+  Manager,
+  ManagerInput,
   Order,
   Product,
+  ProductInput,
   ProductListItem,
+  ProductUpdate,
+  ShopUser,
+  StaffOrder,
   Viewer,
 } from '@shop/shared';
-
 import { CLUB_RECHECK_PARAM } from '@shop/shared';
 import { getInitData } from '../telegram/webapp.ts';
 
@@ -189,4 +196,86 @@ export const api = {
       `/api/orders/${encodeURIComponent(id)}/cancel`,
       { method: 'POST' },
     ).then((r) => r.order),
+
+  // ---- staff ---------------------------------------------------------------
+
+  /** Public, but only the admin finance screen has a reason to read it. */
+  getHealth: () =>
+    request<{
+      ok: boolean;
+      env: string;
+      payments: string;
+      botConfigured: boolean;
+      clubChannelConfigured: boolean;
+      devAuth: boolean;
+    }>('/health'),
+
+  listAllOrders: () =>
+    request<{ orders: StaffOrder[]; count: number }>('/api/orders/all').then(
+      (r) => r.orders,
+    ),
+
+  listAllProducts: () =>
+    request<{ products: Product[] }>('/api/products/all').then((r) => r.products),
+
+  createCategory: (input: CategoryInput) =>
+    request<{ category: Category }>('/api/categories', {
+      method: 'POST',
+      body: input,
+    }).then((r) => r.category),
+
+  updateCategory: (id: string, input: CategoryUpdate) =>
+    request<{ category: Category }>(
+      `/api/categories/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: input },
+    ).then((r) => r.category),
+
+  deleteCategory: (id: string) =>
+    request<{ category: Category }>(
+      `/api/categories/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ).then((r) => r.category),
+
+  createProduct: (input: ProductInput) =>
+    request<{ id: string; keysAdded: number }>('/api/products', {
+      method: 'POST',
+      body: input,
+    }),
+
+  updateProduct: (id: string, input: ProductUpdate) =>
+    request<{ id: string; keysAdded: number }>(
+      `/api/products/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: input },
+    ),
+
+  deactivateProduct: (id: string) =>
+    request<{ id: string; isActive: boolean }>(
+      `/api/products/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+
+  listShopUsers: (params: { q?: string; role?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.q) query.set('q', params.q);
+    if (params.role) query.set('role', params.role);
+    const suffix = query.size > 0 ? `?${query.toString()}` : '';
+    return request<{ users: ShopUser[]; count: number }>(
+      `/api/users${suffix}`,
+    ).then((r) => r.users);
+  },
+
+  listManagers: () =>
+    request<{ managers: Manager[] }>('/api/managers').then((r) => r.managers),
+
+  upsertManager: (input: ManagerInput) =>
+    request<{ manager: Manager }>('/api/managers', {
+      method: 'POST',
+      body: input,
+    }).then((r) => r.manager),
+
+  revokeManager: (telegramId: string) =>
+    request<{ telegramId: string; role: 'USER' }>(
+      `/api/managers/${encodeURIComponent(telegramId)}`,
+      { method: 'DELETE' },
+    ),
 };

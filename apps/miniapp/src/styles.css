@@ -163,6 +163,64 @@ body {
   color: var(--tg-hint-color);
 }
 
+/* ---------- staff mode switch ---------- */
+
+.staff-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 8px var(--page-padding);
+  border: none;
+  border-bottom: 1px solid var(--tg-secondary-bg-color);
+  background: var(--tg-bg-color);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Unmistakably a different mode: an admin editing prices must never think they
+   are looking at the shop. */
+.staff-switch[aria-pressed='true'] {
+  background: rgba(255, 149, 0, 0.14);
+  border-bottom-color: rgba(255, 149, 0, 0.35);
+}
+
+.staff-switch__icon {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.staff-switch__text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staff-switch__action {
+  flex: 0 0 auto;
+  color: var(--tg-link-color);
+  font-weight: 500;
+}
+
+/* Textarea and select reuse `.input`, so they need the same box behaviour. */
+textarea.input {
+  resize: vertical;
+  font-family: inherit;
+}
+
+select.input {
+  appearance: none;
+}
+
 /* ---------- profile header ---------- */
 
 .app-header {

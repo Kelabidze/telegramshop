@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCart, selectItemCount } from './store/cart.ts';
+import { useStaffMode } from './store/staffMode.ts';
 import { useViewer } from './api/useViewer.ts';
 import { useBackButton } from './telegram/buttons.ts';
 import { haptic, isTelegramEnvironment } from './telegram/webapp.ts';
@@ -9,6 +10,9 @@ import { ProductScreen } from './screens/ProductScreen.tsx';
 import { CartScreen } from './screens/CartScreen.tsx';
 import { OrdersScreen } from './screens/OrdersScreen.tsx';
 import { ProfileScreen } from './screens/ProfileScreen.tsx';
+import { AdminCatalogScreen } from './screens/admin/AdminCatalogScreen.tsx';
+import { AdminUsersScreen } from './screens/admin/AdminUsersScreen.tsx';
+import { AdminFinanceScreen } from './screens/admin/AdminFinanceScreen.tsx';
 
 /**
  * Navigation.
@@ -59,6 +63,19 @@ export function App() {
   const itemCount = useCart(selectItemCount);
   const { viewer, isPending, isSubscribedChannel } = useViewer();
 
+  const staffModeEnabled = useStaffMode((s) => s.enabled);
+  const toggleStaffMode = useStaffMode((s) => s.toggle);
+  /**
+   * Staff mode is the persisted flag AND the live role, never the flag alone.
+   *
+   * The flag survives in localStorage, but `/api/me` arrives later and can fail.
+   * Trusting the flag on its own would paint the admin screens for a buyer (or
+   * for a demoted admin) until the profile landed — the API would refuse every
+   * call behind them, but showing them at all is wrong.
+   */
+  const canUseStaffMode = viewer?.role === 'ADMIN';
+  const isStaffMode = canUseStaffMode && staffModeEnabled;
+
   const push = useCallback((view: View) => {
     setStack((prev) => [...prev, view]);
   }, []);
@@ -99,6 +116,16 @@ export function App() {
       showHeader={HEADER_VIEWS.has(current.name)}
       activeTab={activeTab}
       itemCount={itemCount}
+      isStaffMode={isStaffMode}
+      canUseStaffMode={canUseStaffMode}
+      onToggleStaffMode={() => {
+        haptic('selection');
+        toggleStaffMode();
+        // Back to the first tab: staying on "Финансы" while switching to the
+        // shopper view would land on Orders, which is a different screen than
+        // the one that was on display.
+        resetTo({ name: 'catalog' });
+      }}
       onOpenProfile={() => {
         haptic('tap');
         push({ name: 'profile' });
@@ -120,6 +147,21 @@ export function App() {
       }}
       banner={!isTelegramEnvironment() ? <DevBanner /> : null}
     >
+      {/*
+        Staff mode reuses the three tab slots rather than adding new ones, so the
+        stack, the scroll keys and the back button need no special cases.
+      */}
+      {isStaffMode ? (
+        <>
+          {current.name === 'catalog' ? <AdminCatalogScreen /> : null}
+          {current.name === 'cart' ? <AdminUsersScreen /> : null}
+          {current.name === 'orders' ? <AdminFinanceScreen /> : null}
+          {current.name === 'profile' ? (
+            <ProfileScreen viewer={viewer} isPending={isPending} />
+          ) : null}
+        </>
+      ) : (
+        <>
       {current.name === 'catalog' ? (
         <CatalogScreen
           isSubscribedChannel={isSubscribedChannel}
@@ -150,6 +192,8 @@ export function App() {
       {current.name === 'profile' ? (
         <ProfileScreen viewer={viewer} isPending={isPending} />
       ) : null}
+        </>
+      )}
     </AppLayout>
   );
 }

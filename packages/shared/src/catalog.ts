@@ -56,6 +56,17 @@ export const productListItemSchema = productSchema.omit({
 });
 export type ProductListItem = z.infer<typeof productListItemSchema>;
 
+/**
+ * Product as staff see it: the public shape plus `description`.
+ *
+ * Still without `staticPayload`. That field is the product the buyer pays for,
+ * and VIEW_ORDERS / MANAGE_KEYS already have a path to it (the delivered
+ * payload on a paid order). Shipping it in a list would leak every FILE/LINK
+ * secret to anyone who can open the admin catalog.
+ */
+export const staffProductSchema = productSchema;
+export type StaffProduct = Product;
+
 export function isPurchasable(
   product: Pick<Product, 'isActive' | 'stock'>,
 ): boolean {

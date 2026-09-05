@@ -2,8 +2,11 @@ import {
   type Category,
   type CategoryInput,
   type CategoryUpdate,
+  type Product,
   type ProductInput,
   type ProductUpdate,
+  currencySchema,
+  fulfillmentKindSchema,
 } from '@shop/shared';
 import { prisma } from '../db.js';
 import { conflict, notFound } from '../errors.js';
@@ -274,4 +277,71 @@ export async function deactivateProduct(
     }
     throw error;
   }
+}
+
+const STAFF_PRODUCT_SELECT = {
+  id: true,
+  slug: true,
+  title: true,
+  subtitle: true,
+  description: true,
+  imageUrl: true,
+  amountMinor: true,
+  currency: true,
+  compareAtMinor: true,
+  fulfillmentKind: true,
+  categoryId: true,
+  isActive: true,
+} as const;
+
+/**
+ * Every product, including hidden ones, for the staff catalog.
+ *
+ * Deliberately not a flag on `listProducts`: that function's `where: { isActive }`
+ * is the reason a deactivated item disappears from the shop, and mixing "show
+ * all" into it would put that invariant one argument away from being disabled.
+ *
+ * `staticPayload` is not selected. MANAGE_KEYS authorizes editing the product,
+ * not reading every FILE/LINK secret in a list.
+ */
+export async function listAllProducts(): Promise<Product[]> {
+  const rows = await prisma.product.findMany({
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    select: STAFF_PRODUCT_SELECT,
+    take: 500,
+  });
+
+  const keyed = rows.filter((r) => r.fulfillmentKind === 'LICENSE_KEY');
+  const stock = await staffStockByProduct(keyed.map((r) => r.id));
+
+  return rows.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    subtitle: row.subtitle,
+    description: row.description,
+    imageUrl: row.imageUrl,
+    amountMinor: row.amountMinor,
+    currency: currencySchema.catch('XTR').parse(row.currency),
+    compareAtMinor: row.compareAtMinor,
+    fulfillmentKind: fulfillmentKindSchema
+      .catch('LICENSE_KEY')
+      .parse(row.fulfillmentKind),
+    categoryId: row.categoryId,
+    stock:
+      row.fulfillmentKind === 'LICENSE_KEY' ? (stock.get(row.id) ?? 0) : null,
+    isActive: row.isActive,
+  }));
+}
+
+async function staffStockByProduct(
+  productIds: string[],
+): Promise<Map<string, number>> {
+  if (productIds.length === 0) return new Map();
+  const grouped = await prisma.licenseKey.groupBy({
+    by: ['productId'],
+    where: { productId: { in: productIds }, claimedAt: null },
+    _count: { _all: true },
+  });
+  return new Map(grouped.map((g) => [g.productId, g._count._all]));
 }
