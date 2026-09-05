@@ -188,6 +188,29 @@ model OrderLine {
   @@index([productId])
 }
 
+/// A promo strip shown above the catalog on the home screen.
+///
+/// Content lives in the database rather than in the bundle so a banner can be
+/// swapped without a deploy. Deliberately dumb: an image, a caption and one
+/// destination. Anything richer belongs in a product card.
+model Banner {
+  id        String  @id @default(cuid())
+  title     String
+  subtitle  String?
+  imageUrl  String?
+  /// Where a tap leads. Null = decorative, rendered as a non-interactive strip.
+  /// Either an https URL or an in-app target like "category:gift-cards".
+  linkUrl   String?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The home screen reads active banners in display order on every visit.
+  @@index([isActive, sortOrder])
+}
+
 /// Idempotency guard for Telegram webhook updates.
 /// Telegram retries updates; processing one twice would deliver goods twice.
 model ProcessedUpdate {

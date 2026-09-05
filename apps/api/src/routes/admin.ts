@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
+  bannerInputSchema,
+  bannerUpdateSchema,
   categoryInputSchema,
   categoryUpdateSchema,
   cuidSchema,
@@ -10,6 +12,12 @@ import {
   productUpdateSchema,
 } from '@shop/shared';
 import { validationError } from '../errors.js';
+import {
+  createBanner,
+  deleteBanner,
+  listAllBanners,
+  updateBanner,
+} from '../services/banners.js';
 import {
   createCategory,
   createProduct,
@@ -89,6 +97,44 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const { id } = parse(idParamsSchema, request.params, 'category id');
       // Products survive: the relation is SetNull, so they only lose grouping.
       return { category: await deleteCategory(id) };
+    },
+  );
+
+  // ---- banners: EDIT_CATALOG -----------------------------------------------
+  // Same permission as categories: both are how the storefront is arranged, and
+  // a separate right would be one more thing to grant for no extra safety.
+
+  app.get(
+    '/banners/all',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async () => ({ banners: await listAllBanners() }),
+  );
+
+  app.post(
+    '/banners',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async (request, reply) => {
+      const input = parse(bannerInputSchema, request.body, 'banner');
+      return reply.code(201).send({ banner: await createBanner(input) });
+    },
+  );
+
+  app.put(
+    '/banners/:id',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async (request) => {
+      const { id } = parse(idParamsSchema, request.params, 'banner id');
+      const input = parse(bannerUpdateSchema, request.body, 'banner');
+      return { banner: await updateBanner(id, input) };
+    },
+  );
+
+  app.delete(
+    '/banners/:id',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async (request) => {
+      const { id } = parse(idParamsSchema, request.params, 'banner id');
+      return { banner: await deleteBanner(id) };
     },
   );
 

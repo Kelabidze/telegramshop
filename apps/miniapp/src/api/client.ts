@@ -1,5 +1,6 @@
 import type {
   ApiErrorCode,
+  Banner,
   Category,
   CheckoutSession,
   CreateOrderInput,
@@ -153,6 +154,9 @@ export const api = {
     request<{ categories: Category[] }>('/api/categories').then(
       (r) => r.categories,
     ),
+
+  listBanners: () =>
+    request<{ banners: Banner[] }>('/api/banners').then((r) => r.banners),
 
   listProducts: (params: { category?: string; search?: string } = {}) => {
     const query = new URLSearchParams();

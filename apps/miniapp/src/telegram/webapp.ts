@@ -95,6 +95,7 @@ export interface TelegramWebApp {
   enableClosingConfirmation(): void;
   disableVerticalSwipes?(): void;
   openInvoice(url: string, callback?: (status: InvoiceStatus) => void): void;
+  openLink(url: string, options?: { try_instant_view?: boolean }): void;
   openTelegramLink(url: string): void;
   showAlert(message: string, callback?: () => void): void;
   showConfirm(message: string, callback?: (ok: boolean) => void): void;
@@ -208,6 +209,36 @@ let clubChannelUrl = CLUB_CHANNEL_URL_FALLBACK;
 
 export function setClubChannelUrl(url: string | null): void {
   clubChannelUrl = url ?? '';
+}
+
+/**
+ * Opens a link outside the Mini App.
+ *
+ * `t.me` links go through `openTelegramLink`, which keeps the user inside
+ * Telegram; anything else through `openLink`, which uses the in-app browser.
+ * Only `https` is accepted — this is called with values from the database, and
+ * a `javascript:` URL reaching an anchor or a navigation call is a scripting
+ * vector, not a broken link.
+ */
+export function openExternal(url: string): void {
+  if (!/^https:\/\//i.test(url)) return;
+
+  const app = getWebApp();
+  if (!app) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+
+  const isTelegramLink = /^https:\/\/t\.me\//i.test(url);
+  if (isTelegramLink && app.isVersionAtLeast('6.1')) {
+    app.openTelegramLink(url);
+    return;
+  }
+  if (app.isVersionAtLeast('6.1')) {
+    app.openLink(url);
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 export const openChannel = {

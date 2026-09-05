@@ -212,6 +212,42 @@ async function seedAdmins(): Promise<void> {
   console.log(`  admins: ${adminIds.join(', ')}`);
 }
 
+/**
+ * Two demo banners for the home strip.
+ *
+ * Idempotent by title, since a banner has no natural unique key: re-running the
+ * seed must not stack duplicates on the first screen.
+ */
+async function seedBanners(hasCategories: boolean): Promise<void> {
+  const banners = [
+    {
+      title: 'Курсы со скидкой',
+      subtitle: 'Подборка недели',
+      linkUrl: hasCategories ? 'category:courses' : null,
+      sortOrder: 1,
+    },
+    {
+      title: 'Клубный тариф 5%',
+      subtitle: 'Подпишитесь на канал',
+      linkUrl: config.clubChannel.url || null,
+      sortOrder: 2,
+    },
+  ];
+
+  for (const banner of banners) {
+    const existing = await prisma.banner.findFirst({
+      where: { title: banner.title },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.banner.update({ where: { id: existing.id }, data: banner });
+    } else {
+      await prisma.banner.create({ data: banner });
+    }
+  }
+  console.log(`  banners: ${banners.length}`);
+}
+
 async function main() {
   requireExistingDatabase();
   console.log(`Seeding database at ${config.databaseUrl}`);
@@ -262,6 +298,8 @@ async function main() {
     }
   }
   console.log(`  products: ${products.length}`);
+
+  await seedBanners(categoryIdBySlug.size > 0);
 
   await seedAdmins();
 

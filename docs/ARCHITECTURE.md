@@ -27,6 +27,7 @@ packages/shared/src/         единый контракт (zod-схемы + т�
   money.ts                   валюты, minor units, formatMoney
   pricing.ts                 клубный тариф: standardUnitMinor, cartTotals
   catalog.ts                 Category, Product, ProductListItem, FulfillmentKind
+  banner.ts                  промо-баннеры: схема, проверка ссылки, category:slug
   order.ts                   Order, OrderLine, статусы, входные схемы корзины
   telegram.ts                initData, TelegramUser, Viewer, UserRole, Permission
   admin.ts                   входные схемы управления: категории, товары, персонал
@@ -50,6 +51,7 @@ apps/api/
     routes/admin.ts          управляющие роуты: каталог, товары, заказы, персонал
     routes/bot.ts            POST /telegram/webhook + обработчики grammY
     services/catalog.ts      чтение каталога, подсчёт остатка
+    services/banners.ts      баннеры: публичное чтение (не больше 2) и правки
     services/admin-catalog.ts запись каталога: категории, товары, ключи
     services/admin-orders.ts глобальный список заказов (VIEW_ORDERS)
     services/managers.ts     назначение менеджеров и выдача прав
@@ -71,6 +73,7 @@ apps/miniapp/src/
   screens/                   CatalogScreen (главная), ProductScreen, CartScreen,
                              OrdersScreen, ProfileScreen
   components/AppLayout.tsx   корневой каркас: шапка профиля + нижняя навигация
+  components/BannerStrip.tsx промо-полоса над каталогом
   components/ui.tsx          Price, Stepper, Spinner, скелетоны, EmptyState,
                              ErrorState, ClubTierNotice, ClubChannelButton
   store/cart.ts              Zustand-корзина с persist в localStorage
@@ -213,6 +216,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | `User`            | `telegramId` — **String**: id не влезает в 2^53; `role` строкой, но для `ADMIN` источник истины — env, не БД; `displayName` — имя в магазине, отдельно от `firstName` |
 | `ManagerPermission` | одно право = одна строка; уникальна в паре `userId` + `permission` |
 | `Category`        | slug, сортировка, emoji                                          |
+| `Banner`          | промо-полоса над каталогом; ни с чем не связан, поэтому удаляется физически |
 | `Product`         | цена в minor units, `fulfillmentKind`, `staticPayload` (секрет)   |
 | `LicenseKey`      | одна строка = одна единица склада; `claimedAt` + `orderLineId`    |
 | `Order`           | `reference` для человека, `invoicePayload` (уникален) для Telegram |
@@ -242,6 +246,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | GET   | `/api/categories`         | нет            | список категорий                 |
 | GET   | `/api/products`           | нет            | каталог, фильтры `category`, `q` |
 | GET   | `/api/products/:slug`     | нет            | карточка товара                  |
+| GET   | `/api/banners`            | нет            | активные баннеры, не больше 2    |
 | GET   | `/api/me`                 | initData       | профиль: имя, роль, права, клубный статус, `createdAt`, ссылка на канал |
 | PATCH | `/api/me`                 | initData       | переименовать себя в магазине (`displayName`) |
 | GET   | `/api/orders`             | initData       | свои заказы (до 50)              |
@@ -251,6 +256,10 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | POST  | `/api/categories`         | `EDIT_CATALOG` | создать категорию                |
 | PUT   | `/api/categories/:id`     | `EDIT_CATALOG` | изменить категорию (частично)    |
 | DELETE| `/api/categories/:id`     | `EDIT_CATALOG` | удалить; товары остаются         |
+| GET   | `/api/banners/all`        | `EDIT_CATALOG` | все баннеры, включая скрытые     |
+| POST  | `/api/banners`            | `EDIT_CATALOG` | создать баннер                   |
+| PUT   | `/api/banners/:id`        | `EDIT_CATALOG` | изменить баннер (частично)       |
+| DELETE| `/api/banners/:id`        | `EDIT_CATALOG` | удалить баннер                   |
 | POST  | `/api/products`           | `MANAGE_KEYS`  | создать товар + залить ключи     |
 | PUT   | `/api/products/:id`       | `MANAGE_KEYS`  | изменить товар, добавить ключи   |
 | DELETE| `/api/products/:id`       | `MANAGE_KEYS`  | деактивировать (не удалять)      |
@@ -427,14 +436,14 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 9. Тесты
 
-146 тестов, чистый `node:test` через `tsx`, без Jest/Vitest.
+165 тестов, чистый `node:test` через `tsx`, без Jest/Vitest.
 
 | Файл                                     | Что проверяет                                     |
 | ---------------------------------------- | ------------------------------------------------- |
 | `apps/api/src/telegram/init-data.test.ts` | 14 тестов подписи: подмена, `signature`, срок, порядок |
 | `apps/api/src/server.test.ts`             | 27 e2e через `app.inject()` на временной SQLite    |
 | `apps/api/src/plugins/auth.test.ts`       | 15 тестов авторизации: роли, права, инвариант `ADMIN_TELEGRAM_IDS` |
-| `apps/api/src/routes/admin.test.ts`       | 55 тестов управления: 30 на защиту каждого роута, остальные на CRUD |
+| `apps/api/src/routes/admin.test.ts`       | 74 теста управления: 42 на защиту каждого роута, остальные на CRUD и баннеры |
 | `apps/api/src/pricing.test.ts`            | 10 тестов клубного тарифа: направление `P / 0.95`, целые числа, округление на единицу |
 | `apps/api/src/telegram/membership.test.ts` | 9 тестов членства: статусы, кеш, сброс, сбои Bot API |
 | `apps/api/src/telegram/onboarding.test.ts` | 7 тестов копирайта /start и расписания опроса подписки |

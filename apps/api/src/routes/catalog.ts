@@ -5,6 +5,7 @@ import {
   listCategories,
   listProducts,
 } from '../services/catalog.js';
+import { listActiveBanners } from '../services/banners.js';
 import { validationError } from '../errors.js';
 
 const listQuerySchema = z.object({
@@ -15,6 +16,10 @@ const listQuerySchema = z.object({
 export const catalogRoutes: FastifyPluginAsync = async (app) => {
   // Catalog is public: browsing does not require a verified viewer.
   app.get('/categories', async () => ({ categories: await listCategories() }));
+
+  // Public too, and for the same reason: the home screen renders the promo strip
+  // before it knows who is looking.
+  app.get('/banners', async () => ({ banners: await listActiveBanners() }));
 
   app.get('/products', async (request) => {
     const parsed = listQuerySchema.safeParse(request.query);

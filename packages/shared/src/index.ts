@@ -1,6 +1,7 @@
 export * from './money.js';
 export * from './pricing.js';
 export * from './catalog.js';
+export * from './banner.js';
 export * from './order.js';
 export * from './telegram.js';
 export * from './admin.js';

@@ -140,6 +140,10 @@ const ACCESS: Array<Call & { needs: Permission }> = [
   { method: 'POST', url: '/api/categories', needs: 'EDIT_CATALOG', body: {} },
   { method: 'PUT', url: '/api/categories/cat00000000', needs: 'EDIT_CATALOG', body: {} },
   { method: 'DELETE', url: '/api/categories/cat00000000', needs: 'EDIT_CATALOG' },
+  { method: 'GET', url: '/api/banners/all', needs: 'EDIT_CATALOG' },
+  { method: 'POST', url: '/api/banners', needs: 'EDIT_CATALOG', body: {} },
+  { method: 'PUT', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG', body: {} },
+  { method: 'DELETE', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG' },
   { method: 'POST', url: '/api/products', needs: 'MANAGE_KEYS', body: {} },
   { method: 'PUT', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS', body: {} },
   { method: 'DELETE', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS' },
@@ -283,6 +287,137 @@ describe('category management', () => {
       null,
       'the product must survive with its category detached',
     );
+  });
+});
+
+describe('banner management', () => {
+  let bannerId = '';
+
+  it('creates a banner and returns 201', async () => {
+    const res = await call({
+      method: 'POST',
+      url: '/api/banners',
+      as: IDS.catalogManager,
+      body: {
+        title: 'Скидки недели',
+        subtitle: 'до -30%',
+        linkUrl: 'category:admin-cat',
+        sortOrder: 1,
+      },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    const { banner } = res.json();
+    bannerId = banner.id;
+    assert.equal(banner.title, 'Скидки недели');
+    assert.equal(banner.isActive, true, 'a new banner defaults to visible');
+  });
+
+  it('serves active banners publicly, without a signature', async () => {
+    // The home screen renders the strip before it knows who is looking, so this
+    // must work anonymously exactly like the catalog does.
+    const res = await call({ method: 'GET', url: '/api/banners' });
+    assert.equal(res.statusCode, 200, res.body);
+    const titles = res.json().banners.map((b: { title: string }) => b.title);
+    assert.ok(titles.includes('Скидки недели'));
+  });
+
+  it('rejects a link that is neither https nor an in-app category', async () => {
+    // This value ends up in a navigation call and an href. A `javascript:` URL
+    // getting through would turn a CMS field into a scripting vector.
+    for (const linkUrl of [
+      'javascript:alert(1)',
+      'http://insecure.example.com',
+      'category:Not A Slug',
+    ]) {
+      const res = await call({
+        method: 'POST',
+        url: '/api/banners',
+        as: IDS.catalogManager,
+        body: { title: 'Плохая ссылка', linkUrl },
+      });
+      assert.equal(res.statusCode, 400, `must reject ${linkUrl}`);
+      assert.equal(res.json().error.code, 'VALIDATION_ERROR');
+    }
+  });
+
+  it('hides a banner from the public list once deactivated', async () => {
+    const updated = await call({
+      method: 'PUT',
+      url: `/api/banners/${bannerId}`,
+      as: IDS.catalogManager,
+      body: { isActive: false },
+    });
+    assert.equal(updated.statusCode, 200, updated.body);
+    assert.equal(updated.json().banner.isActive, false);
+
+    const publicList = await call({ method: 'GET', url: '/api/banners' });
+    const ids = publicList.json().banners.map((b: { id: string }) => b.id);
+    assert.equal(ids.includes(bannerId), false, 'hidden banners must not ship');
+
+    // Staff still see it, otherwise it could never be switched back on.
+    const staffList = await call({
+      method: 'GET',
+      url: '/api/banners/all',
+      as: IDS.catalogManager,
+    });
+    const staffIds = staffList.json().banners.map((b: { id: string }) => b.id);
+    assert.ok(staffIds.includes(bannerId));
+  });
+
+  it('does not resurrect a hidden banner on an unrelated partial update', async () => {
+    // `isActive` has a default on create. If the update schema were a
+    // `.partial()` of it, this PUT would silently re-publish the banner.
+    const res = await call({
+      method: 'PUT',
+      url: `/api/banners/${bannerId}`,
+      as: IDS.catalogManager,
+      body: { sortOrder: 5 },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.json().banner.sortOrder, 5);
+    assert.equal(
+      res.json().banner.isActive,
+      false,
+      'a field absent from the request must keep its stored value',
+    );
+  });
+
+  it('never ships more than two banners to the home screen', async () => {
+    // The strip sits above the catalog: a careless extra banner would push the
+    // products off the first screen, so the cap lives in the read, not the UI.
+    for (const sortOrder of [10, 11, 12, 13]) {
+      const res = await call({
+        method: 'POST',
+        url: '/api/banners',
+        as: IDS.catalogManager,
+        body: { title: `Баннер ${sortOrder}`, sortOrder },
+      });
+      assert.equal(res.statusCode, 201, res.body);
+    }
+
+    const res = await call({ method: 'GET', url: '/api/banners' });
+    assert.ok(
+      res.json().banners.length <= 2,
+      `expected at most 2 banners, got ${res.json().banners.length}`,
+    );
+  });
+
+  it('deletes a banner and 404s afterwards', async () => {
+    const deleted = await call({
+      method: 'DELETE',
+      url: `/api/banners/${bannerId}`,
+      as: IDS.catalogManager,
+    });
+    assert.equal(deleted.statusCode, 200, deleted.body);
+
+    const again = await call({
+      method: 'PUT',
+      url: `/api/banners/${bannerId}`,
+      as: IDS.catalogManager,
+      body: { title: 'Уже нет' },
+    });
+    assert.equal(again.statusCode, 404);
+    assert.equal(again.json().error.code, 'NOT_FOUND');
   });
 });
 

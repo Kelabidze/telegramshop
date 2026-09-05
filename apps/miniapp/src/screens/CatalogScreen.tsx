@@ -10,6 +10,7 @@ import {
   Price,
   ProductSkeletonGrid,
 } from '../components/ui.tsx';
+import { BannerStrip } from '../components/BannerStrip.tsx';
 import {
   forgetScrollPosition,
   useScrollRestoration,
@@ -44,6 +45,15 @@ export function CatalogScreen({
     staleTime: 5 * 60 * 1000,
   });
 
+  const bannersQuery = useQuery({
+    queryKey: ['banners'],
+    queryFn: () => api.listBanners(),
+    staleTime: 5 * 60 * 1000,
+    // Promo content is never worth an error screen: the catalog below it is the
+    // point of the page.
+    retry: false,
+  });
+
   const productsQuery = useQuery({
     queryKey: ['products', category],
     queryFn: () => api.listProducts(category ? { category } : {}),
@@ -75,6 +85,16 @@ export function CatalogScreen({
 
   return (
     <div className="page">
+      {/*
+        Above the catalog, below the profile header. No skeleton while it loads:
+        banners are promotional, and a shimmering placeholder for content that
+        may not exist would push the catalog down for nothing.
+      */}
+      <BannerStrip
+        banners={bannersQuery.data ?? []}
+        onOpenCategory={selectCategory}
+      />
+
       <h2 className="section-title" style={{ marginTop: 0 }}>
         Каталог
       </h2>
