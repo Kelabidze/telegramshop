@@ -215,8 +215,10 @@ async function seedAdmins(): Promise<void> {
 /**
  * Two demo banners for the home strip.
  *
- * Idempotent by title, since a banner has no natural unique key: re-running the
- * seed must not stack duplicates on the first screen.
+ * Matched by title, since a banner has no natural unique key. Existing rows are
+ * left alone rather than updated: a banner edited through the API must not be
+ * reset by a re-run. Same rule as `seed-banners.ts`, which does only this part
+ * and is the one safe to run on a live server.
  */
 async function seedBanners(hasCategories: boolean): Promise<void> {
   const banners = [
@@ -234,18 +236,17 @@ async function seedBanners(hasCategories: boolean): Promise<void> {
     },
   ];
 
+  let created = 0;
   for (const banner of banners) {
     const existing = await prisma.banner.findFirst({
       where: { title: banner.title },
       select: { id: true },
     });
-    if (existing) {
-      await prisma.banner.update({ where: { id: existing.id }, data: banner });
-    } else {
-      await prisma.banner.create({ data: banner });
-    }
+    if (existing) continue;
+    await prisma.banner.create({ data: banner });
+    created += 1;
   }
-  console.log(`  banners: ${banners.length}`);
+  console.log(`  banners: ${created} created, ${banners.length - created} kept`);
 }
 
 async function main() {

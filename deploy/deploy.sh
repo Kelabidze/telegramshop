@@ -297,6 +297,23 @@ log "Applying database schema"
 # Full output on failure: `tail -5` used to hide the actual Prisma error.
 npm run db:push || fail "prisma db push failed; see the output above"
 
+# Demo banners, so the promo strip is not empty on a fresh install. Only creates
+# what is missing and never edits an existing banner, so this is safe to run on
+# every deploy: text changed through the API survives.
+#
+# Not `db:seed`: the full seed also upserts the demo catalog and would overwrite
+# real products with samples.
+#
+# A failure here must not fail the deploy — an empty promo strip is cosmetic,
+# and the shop works without it.
+# Path is relative to $RELEASE (the release root), not to apps/api: this script
+# runs from the release root, unlike the systemd unit which sets
+# WorkingDirectory=.../apps/api. DATABASE_URL is absolute in production, so the
+# working directory does not affect which database is touched.
+log "Seeding demo banners (idempotent)"
+node apps/api/dist/cli/seed-banners.js \
+  || log "WARNING: banner seeding failed; the promo strip may be empty"
+
 echo "$COMMIT" > "$RELEASE/.deployed-commit"
 cp -f "$RELEASE/artifact.json" "$RELEASE/.artifact.json" 2>/dev/null || true
 

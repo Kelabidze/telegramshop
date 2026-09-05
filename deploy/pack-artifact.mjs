@@ -54,6 +54,7 @@ const REQUIRED_BUILD_OUTPUTS = [
   // if they ever fall out of the tsconfig `include`, tsc stays green and the
   // breakage only surfaces on the server as "Cannot find module".
   'apps/api/dist/cli/seed.js',
+  'apps/api/dist/cli/seed-banners.js',
   'apps/api/dist/cli/webhook.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',

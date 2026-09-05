@@ -177,6 +177,7 @@ npm run pack             # артефакт для сервера (требуе�
 
 npm run db:push          # применить схему к dev-базе
 npm run db:seed          # демо-каталог, идемпотентно
+npm run db:seed:banners  # только 2 демо-баннера (безопасно на проде)
 npm run db:studio        # GUI для базы
 
 npm run tunnel           # cloudflared на порт Vite (нужен для Telegram)

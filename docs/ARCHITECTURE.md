@@ -43,6 +43,7 @@ apps/api/
     errors.ts                AppError и хелперы (notFound, validationError…)
     server.ts                сборка Fastify: CORS, rate limit, обработка ошибок
     cli/seed.ts              демо-каталог, идемпотентный
+    cli/seed-banners.ts      только демо-баннеры; запускается при деплое
     cli/webhook.ts           set/delete вебхука Telegram
     plugins/auth.ts          проверка initData → Viewer; RBAC: requireRole/requirePermission
     routes/catalog.ts        GET /api/categories, /api/products, /api/products/:slug
@@ -504,7 +505,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | Переменные окружения               | `config.ts`, `apps/api/.env.example`, `deploy/setup-server.sh`           |
 | Деплой, Caddy, systemd             | `deploy/*`, `.github/workflows/deploy.yml`, `docs/DEPLOYMENT.md`         |
 | Состав артефакта для сервера       | `deploy/pack-artifact.mjs`                                              |
-| Демо-данные                        | `apps/api/src/cli/seed.ts`                                              |
+| Демо-данные                        | `apps/api/src/cli/seed.ts`, `apps/api/src/cli/seed-banners.ts`           |
 | Обслуживающие команды              | `apps/api/src/cli/*.ts` (компилируются в `dist/cli/*.js`)                |
 
 ---

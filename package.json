@@ -20,6 +20,7 @@
     "test": "npm run test --workspaces --if-present",
     "db:push": "npm run db:push -w @shop/api",
     "db:seed": "npm run db:seed -w @shop/api",
+    "db:seed:banners": "npm run db:seed:banners -w @shop/api",
     "db:studio": "npm run db:studio -w @shop/api",
     "bot:set-webhook": "npm run bot:set-webhook -w @shop/api",
     "bot:delete-webhook": "npm run bot:delete-webhook -w @shop/api",
