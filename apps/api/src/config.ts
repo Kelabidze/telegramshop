@@ -57,8 +57,13 @@ const envSchema = z.object({
    * old releases, so anything written there disappears. In production this is
    * `/srv/shop/shared/uploads`, the one path the systemd unit grants write
    * access to and the one that survives a deploy.
+   *
+   * Left empty on purpose — the default is derived below, because a relative
+   * default resolved into the release directory, which systemd mounts read-only
+   * (`ProtectSystem=strict` + `ReadWritePaths=/srv/shop/shared`). Creating it
+   * there failed with EROFS and took the whole process down on boot.
    */
-  UPLOADS_DIR: z.string().default('./uploads'),
+  UPLOADS_DIR: z.string().default(''),
 
   PAYMENT_PROVIDER: z.enum(['stars', 'provider', 'none']).default('stars'),
 
@@ -98,6 +103,35 @@ function resolveSqlitePath(url: string): string {
   if (path.isAbsolute(withoutScheme)) return withoutScheme;
   // src/ -> apps/api
   return path.resolve(import.meta.dirname, '..', withoutScheme);
+}
+
+/**
+ * Where uploads live, defaulting next to the database rather than to the code.
+ *
+ * The database is already required to sit on writable storage that survives a
+ * deploy — in production `/srv/shop/shared/data/prod.db`. Uploads need exactly
+ * the same guarantees, so deriving their location from it means a server whose
+ * `api.env` predates this feature (and therefore has no `UPLOADS_DIR`) still
+ * gets a working, writable path instead of one inside the read-only release.
+ *
+ * That is not hypothetical: `setup-server.sh` never rewrites an existing
+ * `api.env`, so every already-provisioned server lacks the variable.
+ */
+function resolveUploadsDir(configured: string, databaseUrl: string): string {
+  if (configured) {
+    return path.isAbsolute(configured)
+      ? configured
+      : path.resolve(import.meta.dirname, '..', configured);
+  }
+
+  const dbPath = resolveSqlitePath(databaseUrl);
+  if (dbPath !== ':memory:' && path.isAbsolute(dbPath)) {
+    // .../shared/data/prod.db -> .../shared/uploads
+    return path.resolve(path.dirname(dbPath), '..', 'uploads');
+  }
+
+  // In-memory database (tests): anywhere writable will do.
+  return path.resolve(import.meta.dirname, '..', 'uploads');
 }
 
 /** Bot id is the numeric prefix of the token; needed for third-party checks. */
@@ -154,11 +188,7 @@ export const config = {
 
   databaseUrl: resolveSqlitePath(raw.DATABASE_URL),
 
-  // Relative paths resolve against apps/api, like DATABASE_URL, so the process
-  // behaves the same whatever directory it was started from.
-  uploadsDir: path.isAbsolute(raw.UPLOADS_DIR)
-    ? raw.UPLOADS_DIR
-    : path.resolve(import.meta.dirname, '..', raw.UPLOADS_DIR),
+  uploadsDir: resolveUploadsDir(raw.UPLOADS_DIR, raw.DATABASE_URL),
 
   telegram: {
     botToken: raw.TELEGRAM_BOT_TOKEN,

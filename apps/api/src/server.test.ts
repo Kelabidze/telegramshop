@@ -121,6 +121,9 @@ describe('health & catalog', () => {
     // present so a silent "feature off" is distinguishable from a Telegram
     // refusal when diagnosing production.
     assert.equal(body.clubChannelConfigured, false);
+    // Surfaced so a broken uploads directory is visible here rather than only as
+    // a failed upload much later.
+    assert.equal(typeof body.uploadsReady, 'boolean');
   });
 
   it('lists products publicly with stock and without description', async () => {

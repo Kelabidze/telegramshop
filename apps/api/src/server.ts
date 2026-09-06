@@ -78,18 +78,40 @@ export async function buildServer() {
    * never reached. It exists so development works identically without Caddy —
    * the same `/uploads/...` URL resolves in both, and no code needs to know
    * which environment it is in.
+   *
+   * Wrapped in try/catch because this must never prevent the server from
+   * starting. It already did once: with `UPLOADS_DIR` absent the path resolved
+   * inside the release directory, which systemd mounts read-only, `mkdir` threw
+   * EROFS, and the whole process died on boot — the shop was down because it
+   * could not create a folder for banner images. Serving pictures is strictly
+   * less important than serving the shop.
    */
-  await mkdir(config.uploadsDir, { recursive: true });
-  await app.register(fastifyStatic, {
-    root: config.uploadsDir,
-    prefix: `${UPLOADS_URL_PREFIX}/`,
-    index: false,
-    // Uploads are user-supplied bytes; never let the browser re-sniff the type.
-    setHeaders(reply) {
-      reply.setHeader('X-Content-Type-Options', 'nosniff');
-      reply.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-    },
-  });
+  let uploadsReady = false;
+  try {
+    await mkdir(config.uploadsDir, { recursive: true });
+    await app.register(fastifyStatic, {
+      root: config.uploadsDir,
+      prefix: `${UPLOADS_URL_PREFIX}/`,
+      index: false,
+      // Uploads are user-supplied bytes; never let the browser re-sniff the type.
+      setHeaders(reply) {
+        reply.setHeader('X-Content-Type-Options', 'nosniff');
+        reply.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      },
+    });
+    uploadsReady = true;
+  } catch (error) {
+    // Loud, because uploads will fail for the same reason and the operator needs
+    // to know why: almost always a missing or unwritable UPLOADS_DIR.
+    app.log.error(
+      {
+        err: error instanceof Error ? error.message : String(error),
+        uploadsDir: config.uploadsDir,
+      },
+      'Could not prepare the uploads directory; media uploads and serving are ' +
+        'disabled. Set UPLOADS_DIR to a writable path outside the release.',
+    );
+  }
 
   await app.register(authPlugin);
 
@@ -159,6 +181,9 @@ export async function buildServer() {
       // returned — knowing it is configured is enough to tell "feature off" from
       // "Telegram refused" when diagnosing a silent /api/me.
       clubChannelConfigured: config.clubChannel.enabled,
+      // Reported so a broken uploads directory is visible here instead of only
+      // as a failed upload later. `ok` stays true: the shop works without it.
+      uploadsReady,
       devAuth: config.devAuthEnabled,
     };
   });
