@@ -31,7 +31,8 @@ export const bannerSchema = z.object({
   id: cuidSchema,
   title: z.string().min(1).max(120),
   subtitle: z.string().max(200).nullable(),
-  imageUrl: z.string().url().max(2000).nullable(),
+  // Same-origin `/uploads/...` for an uploaded file, or an absolute URL.
+  imageUrl: z.string().max(2000).nullable(),
   linkUrl: bannerLinkSchema.nullable(),
   isActive: z.boolean(),
   sortOrder: z.number().int(),
@@ -41,7 +42,7 @@ export type Banner = z.infer<typeof bannerSchema>;
 const bannerFields = {
   title: z.string().min(1).max(120),
   subtitle: z.string().max(200).nullish(),
-  imageUrl: z.string().url().max(2000).nullish(),
+  imageUrl: z.string().max(2000).nullish(),
   linkUrl: bannerLinkSchema.nullish(),
   isActive: z.boolean(),
   sortOrder: z.number().int().min(0).max(10_000),

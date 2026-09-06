@@ -86,9 +86,13 @@ model Product {
   description String  @default("")
   imageUrl    String?
 
+  /// Card artwork: a single emoji, used when `imageUrl` is null.
+  /// Either one or the other — the app prefers the image when both are set.
+  emoji       String?
+
   /// Price in the currency's smallest unit (Stars: whole stars).
   amountMinor    Int
-  currency       String  @default("XTR")
+  currency       String @default("XTR")
   /// Optional "was" price for discount display.
   compareAtMinor Int?
 

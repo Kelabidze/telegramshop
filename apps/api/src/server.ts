@@ -1,6 +1,11 @@
 import Fastify from 'fastify';
+import { mkdir } from 'node:fs/promises';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import { MEDIA_MAX_BYTES } from '@shop/shared';
+import { UPLOADS_URL_PREFIX } from './services/media.js';
 import { pathToFileURL } from 'node:url';
 import { ZodError } from 'zod';
 import { config } from './config.js';
@@ -53,6 +58,37 @@ export async function buildServer() {
     timeWindow: '1 minute',
     // The webhook is authenticated by a secret token and must not be throttled.
     allowList: (request) => request.url.startsWith('/telegram/webhook'),
+  });
+
+  // File uploads. The limit is the largest single accepted file plus a small
+  // margin for the multipart envelope; `files: 1` means one upload per request,
+  // so a single call cannot fill the quota in one go.
+  await app.register(multipart, {
+    limits: {
+      fileSize: MEDIA_MAX_BYTES,
+      files: 1,
+      fields: 4,
+    },
+  });
+
+  /**
+   * Uploaded media.
+   *
+   * In production Caddy serves `/uploads/*` straight from disk and this route is
+   * never reached. It exists so development works identically without Caddy —
+   * the same `/uploads/...` URL resolves in both, and no code needs to know
+   * which environment it is in.
+   */
+  await mkdir(config.uploadsDir, { recursive: true });
+  await app.register(fastifyStatic, {
+    root: config.uploadsDir,
+    prefix: `${UPLOADS_URL_PREFIX}/`,
+    index: false,
+    // Uploads are user-supplied bytes; never let the browser re-sniff the type.
+    setHeaders(reply) {
+      reply.setHeader('X-Content-Type-Options', 'nosniff');
+      reply.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    },
   });
 
   await app.register(authPlugin);

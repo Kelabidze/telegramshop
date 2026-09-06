@@ -35,7 +35,14 @@ export const productSchema = z.object({
   title: z.string().min(1).max(160),
   subtitle: z.string().max(200).nullable(),
   description: z.string().max(4000),
-  imageUrl: z.string().url().nullable(),
+  /**
+   * Uploaded artwork. A same-origin `/uploads/...` path, or an absolute URL for
+   * media hosted elsewhere — hence no `.url()` here, which would reject the
+   * former.
+   */
+  imageUrl: z.string().max(2000).nullable(),
+  /** Fallback artwork when there is no image. */
+  emoji: z.string().max(16).nullable().default(null),
   amountMinor: amountMinorSchema,
   currency: currencySchema,
   /** Optional strike-through price for showing a discount. */

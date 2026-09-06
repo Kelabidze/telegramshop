@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true },
         '/health': { target: apiTarget, changeOrigin: true },
+        // Uploaded media. In production Caddy serves this straight from disk;
+        // in development the API serves it, so the same `/uploads/...` URL
+        // works in both and nothing has to know where it is running.
+        '/uploads': { target: apiTarget, changeOrigin: true },
       },
     },
     build: {

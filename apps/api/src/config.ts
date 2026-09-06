@@ -50,6 +50,16 @@ const envSchema = z.object({
   /** Public invite link shown to users, e.g. https://t.me/ochkisk. */
   CLUB_CHANNEL_URL: z.string().default(''),
 
+  /**
+   * Where uploaded banner and product media is stored.
+   *
+   * Must live OUTSIDE the release directory: deploys replace `current` and prune
+   * old releases, so anything written there disappears. In production this is
+   * `/srv/shop/shared/uploads`, the one path the systemd unit grants write
+   * access to and the one that survives a deploy.
+   */
+  UPLOADS_DIR: z.string().default('./uploads'),
+
   PAYMENT_PROVIDER: z.enum(['stars', 'provider', 'none']).default('stars'),
 
   CORS_ORIGINS: csv,
@@ -143,6 +153,12 @@ export const config = {
   logLevel: raw.LOG_LEVEL,
 
   databaseUrl: resolveSqlitePath(raw.DATABASE_URL),
+
+  // Relative paths resolve against apps/api, like DATABASE_URL, so the process
+  // behaves the same whatever directory it was started from.
+  uploadsDir: path.isAbsolute(raw.UPLOADS_DIR)
+    ? raw.UPLOADS_DIR
+    : path.resolve(import.meta.dirname, '..', raw.UPLOADS_DIR),
 
   telegram: {
     botToken: raw.TELEGRAM_BOT_TOKEN,

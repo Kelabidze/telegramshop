@@ -18,6 +18,10 @@ apps/api/prisma/migrations/dev/
 # generated Prisma client
 apps/api/src/generated/
 
+# Locally uploaded media. Real uploads live on the server in shared/uploads and
+# are never part of the repository or the deploy artifact.
+apps/api/uploads/
+
 # editors / OS
 .vscode/*
 !.vscode/extensions.json

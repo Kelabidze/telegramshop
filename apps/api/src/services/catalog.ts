@@ -1,4 +1,4 @@
-import {
+﻿import {
   type Category,
   type Product,
   type ProductListItem,
@@ -23,6 +23,7 @@ type ProductRow = {
   subtitle: string | null;
   description: string;
   imageUrl: string | null;
+  emoji: string | null;
   amountMinor: number;
   currency: string;
   compareAtMinor: number | null;
@@ -39,6 +40,7 @@ function toProduct(row: ProductRow, stock: number | null): Product {
     subtitle: row.subtitle,
     description: row.description,
     imageUrl: row.imageUrl,
+    emoji: row.emoji,
     amountMinor: row.amountMinor,
     currency: currencySchema.catch('XTR').parse(row.currency),
     compareAtMinor: row.compareAtMinor,
@@ -58,6 +60,7 @@ const PRODUCT_SELECT = {
   subtitle: true,
   description: true,
   imageUrl: true,
+  emoji: true,
   amountMinor: true,
   currency: true,
   compareAtMinor: true,

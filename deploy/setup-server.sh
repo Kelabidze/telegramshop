@@ -102,6 +102,9 @@ install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/releases"
 install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/incoming"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_ROOT/shared"
 install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_ROOT/shared/data"
+# Uploaded media. 755, unlike data/: Caddy runs as its own user and has to read
+# these files to serve /uploads/*. The database stays private at 750.
+install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/shared/uploads"
 install -d -o "$APP_USER" -g "$APP_USER" -m 755 "$APP_ROOT/repo"
 
 echo "==> Preparing the source checkout"
@@ -136,6 +139,11 @@ LOG_LEVEL=info
 
 # Absolute path: the API must not depend on its working directory.
 DATABASE_URL=file:${APP_ROOT}/shared/data/prod.db
+
+# Uploaded banner and product media. MUST stay outside the release directory:
+# deploys prune old releases, so anything written there disappears. Caddy serves
+# this path directly as /uploads/*.
+UPLOADS_DIR=${APP_ROOT}/shared/uploads
 
 # From @BotFather. REQUIRED - the API refuses to start in production without it.
 TELEGRAM_BOT_TOKEN=

@@ -1,4 +1,4 @@
-import {
+﻿import {
   type Category,
   type CategoryInput,
   type CategoryUpdate,
@@ -192,6 +192,7 @@ export async function createProduct(
         subtitle: fields.subtitle ?? null,
         description: fields.description,
         imageUrl: fields.imageUrl ?? null,
+        emoji: fields.emoji ?? null,
         amountMinor: fields.amountMinor,
         currency: fields.currency,
         compareAtMinor: fields.compareAtMinor ?? null,
@@ -286,6 +287,7 @@ const STAFF_PRODUCT_SELECT = {
   subtitle: true,
   description: true,
   imageUrl: true,
+  emoji: true,
   amountMinor: true,
   currency: true,
   compareAtMinor: true,
@@ -321,6 +323,7 @@ export async function listAllProducts(): Promise<Product[]> {
     subtitle: row.subtitle,
     description: row.description,
     imageUrl: row.imageUrl,
+    emoji: row.emoji,
     amountMinor: row.amountMinor,
     currency: currencySchema.catch('XTR').parse(row.currency),
     compareAtMinor: row.compareAtMinor,

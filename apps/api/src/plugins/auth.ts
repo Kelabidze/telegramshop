@@ -44,6 +44,17 @@ declare module 'fastify' {
     requirePermission: (
       permission: Permission,
     ) => (request: FastifyRequest) => Promise<Viewer>;
+    /**
+     * Builds a pre-handler that accepts any one of `permissions`.
+     *
+     * For operations that legitimately belong to more than one job: uploading
+     * media is part of arranging the storefront (EDIT_CATALOG) and part of
+     * editing a product (MANAGE_KEYS), and inventing a third permission would
+     * mean granting it separately for no extra safety.
+     */
+    requireAnyPermission: (
+      ...permissions: Permission[]
+    ) => (request: FastifyRequest) => Promise<Viewer>;
   }
 }
 
@@ -317,6 +328,36 @@ const plugin: FastifyPluginAsync = async (app) => {
   );
 
   app.decorate('requireAdmin', app.requireRole('ADMIN'));
+
+  app.decorate('requireAnyPermission', (...permissions: Permission[]) => {
+    // Validated at registration, like `requirePermission`: a typo must stop the
+    // server rather than become a 403 nobody can tell from a real denial.
+    if (permissions.length === 0) {
+      throw new Error('requireAnyPermission() needs at least one permission.');
+    }
+    const required = permissions.map((permission) => {
+      const parsed = permissionSchema.safeParse(permission);
+      if (!parsed.success) {
+        throw new Error(
+          `Unknown permission "${String(permission)}" in requireAnyPermission(). ` +
+            'Add it to permissionSchema in packages/shared/src/telegram.ts first.',
+        );
+      }
+      return parsed.data;
+    });
+
+    return async (request: FastifyRequest) => {
+      const viewer = await resolveViewer(request);
+      if (viewer.role === 'ADMIN') return viewer;
+      if (
+        viewer.role !== 'MANAGER' ||
+        !required.some((permission) => viewer.permissions.includes(permission))
+      ) {
+        throw new AppError('FORBIDDEN', 'Required permission is missing.');
+      }
+      return viewer;
+    };
+  });
 
   app.decorate('requirePermission', (permission: Permission) => {
     // Validated at registration, not per request: an unknown permission would

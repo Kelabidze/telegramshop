@@ -1,6 +1,8 @@
 import type {
   ApiErrorCode,
   Banner,
+  BannerInput,
+  BannerUpdate,
   Category,
   CategoryInput,
   CategoryUpdate,
@@ -8,6 +10,7 @@ import type {
   CreateOrderInput,
   Manager,
   ManagerInput,
+  MediaAsset,
   Order,
   Product,
   ProductInput,
@@ -199,6 +202,49 @@ export const api = {
 
   // ---- staff ---------------------------------------------------------------
 
+  /**
+   * Uploads one media file.
+   *
+   * Sent as `multipart/form-data`, so this bypasses `request()`: that helper
+   * always sets `content-type: application/json`, and a multipart body needs the
+   * boundary the browser generates. Auth headers are reused as-is.
+   */
+  uploadMedia: async (file: File): Promise<MediaAsset> => {
+    const form = new FormData();
+    form.append('file', file);
+
+    const headers = buildHeaders(false) as Record<string, string>;
+    // Let the browser set `content-type` with its boundary.
+    delete headers['content-type'];
+
+    const response = await fetch(`${BASE_URL}/api/media`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+
+    const text = await response.text();
+    const payload: unknown = text ? JSON.parse(text) : null;
+
+    if (!response.ok) {
+      const body = payload as
+        | { error?: { code?: ApiErrorCode; message?: string } }
+        | null;
+      throw new ApiError(
+        body?.error?.code ?? 'INTERNAL_ERROR',
+        body?.error?.message ?? `Ошибка ${response.status}.`,
+        response.status,
+      );
+    }
+
+    return (payload as { asset: MediaAsset }).asset;
+  },
+
+  getMediaUsage: () =>
+    request<{ usedBytes: number; quotaBytes: number; fileCount: number }>(
+      '/api/media/usage',
+    ),
+
   /** Public, but only the admin finance screen has a reason to read it. */
   getHealth: () =>
     request<{
@@ -217,6 +263,26 @@ export const api = {
 
   listAllProducts: () =>
     request<{ products: Product[] }>('/api/products/all').then((r) => r.products),
+
+  listAllBanners: () =>
+    request<{ banners: Banner[] }>('/api/banners/all').then((r) => r.banners),
+
+  createBanner: (input: BannerInput) =>
+    request<{ banner: Banner }>('/api/banners', {
+      method: 'POST',
+      body: input,
+    }).then((r) => r.banner),
+
+  updateBanner: (id: string, input: BannerUpdate) =>
+    request<{ banner: Banner }>(`/api/banners/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: input,
+    }).then((r) => r.banner),
+
+  deleteBanner: (id: string) =>
+    request<{ banner: Banner }>(`/api/banners/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then((r) => r.banner),
 
   createCategory: (input: CategoryInput) =>
     request<{ category: Category }>('/api/categories', {

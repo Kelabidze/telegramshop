@@ -20,6 +20,28 @@ ochkisk.shop {
 		}
 	}
 
+	# --- uploaded media ------------------------------------------------------
+	# Served straight from disk, bypassing Node: these are static files, and
+	# streaming them through the API would waste memory on the small VPS.
+	#
+	# The directory is under `shared`, NOT under a release: deploys prune old
+	# releases, so media written there would vanish on the next deploy.
+	handle /uploads/* {
+		root * /srv/shop/shared
+		file_server {
+			# No directory listing: the file names are the only thing protecting
+			# an upload from being enumerated.
+			browse off
+		}
+
+		# Names are content-addressed random hex, so a given URL never changes
+		# content and can be cached hard.
+		header Cache-Control "public, max-age=31536000, immutable"
+		# Uploads are user-supplied bytes. Even though the API sniffs magic bytes
+		# before storing, never let a browser re-interpret the type.
+		header X-Content-Type-Options "nosniff"
+	}
+
 	# --- Mini App static files -----------------------------------------------
 	handle {
 		root * /srv/shop/current/apps/miniapp/dist

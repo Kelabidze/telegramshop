@@ -100,7 +100,7 @@ export function ProductScreen({
             marginBottom: 16,
           }}
         >
-          🎁
+          {product.emoji || '🎁'}
         </div>
       )}
 

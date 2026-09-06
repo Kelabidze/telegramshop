@@ -1,13 +1,17 @@
 ﻿import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  emojiSchema,
   formatMoney,
   slugSchema,
+  type Banner,
   type Category,
   type FulfillmentKind,
   type Product,
+  type ProductMediaMode,
 } from '@shop/shared';
 import { ApiError, api } from '../../api/client.ts';
+import { MediaPicker } from '../../components/MediaPicker.tsx';
 import { EmptyState, ErrorState, Spinner } from '../../components/ui.tsx';
 import { haptic, showAlert, showConfirm } from '../../telegram/webapp.ts';
 
@@ -32,6 +36,7 @@ export function AdminCatalogScreen() {
   const [editingProduct, setEditingProduct] = useState<Product | 'new' | null>(
     null,
   );
+  const [editingBanner, setEditingBanner] = useState<Banner | 'new' | null>(null);
 
   const categoriesQuery = useQuery({
     queryKey: ['categories'],
@@ -41,9 +46,14 @@ export function AdminCatalogScreen() {
     queryKey: ['staff-products'],
     queryFn: () => api.listAllProducts(),
   });
+  const bannersQuery = useQuery({
+    queryKey: ['staff-banners'],
+    queryFn: () => api.listAllBanners(),
+  });
 
   const categories = categoriesQuery.data ?? [];
   const products = productsQuery.data ?? [];
+  const banners = bannersQuery.data ?? [];
 
   if (categoriesQuery.isPending || productsQuery.isPending) {
     return <Spinner label="Загружаем каталог…" />;
@@ -110,6 +120,65 @@ export function AdminCatalogScreen() {
           onSaved={() => {
             void queryClient.invalidateQueries({ queryKey: ['categories'] });
             setEditingCategory(null);
+          }}
+        />
+      ) : null}
+
+      <h2 className="section-title">Баннеры</h2>
+      <div className="stack">
+        {banners.map((banner) => (
+          <div key={banner.id} className="card row">
+            {banner.imageUrl ? (
+              <img
+                src={banner.imageUrl}
+                alt=""
+                style={{
+                  width: 56,
+                  height: 32,
+                  objectFit: 'cover',
+                  borderRadius: 6,
+                }}
+              />
+            ) : null}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{banner.title}</div>
+              <div className="hint">
+                {banner.isActive ? 'Показывается' : 'Скрыт'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={() => {
+                haptic('tap');
+                setEditingBanner(banner);
+              }}
+            >
+              Изменить
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="button button--secondary"
+          onClick={() => {
+            haptic('tap');
+            setEditingBanner('new');
+          }}
+        >
+          + Баннер
+        </button>
+      </div>
+
+      {editingBanner ? (
+        <BannerForm
+          banner={editingBanner === 'new' ? null : editingBanner}
+          categories={categories}
+          onClose={() => setEditingBanner(null)}
+          onSaved={() => {
+            void queryClient.invalidateQueries({ queryKey: ['banners'] });
+            void queryClient.invalidateQueries({ queryKey: ['staff-banners'] });
+            setEditingBanner(null);
           }}
         />
       ) : null}
@@ -321,6 +390,13 @@ function ProductForm({
   const [description, setDescription] = useState(product?.description ?? '');
   const [amount, setAmount] = useState(String(product?.amountMinor ?? ''));
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? '');
+  const [imageUrl, setImageUrl] = useState<string | null>(product?.imageUrl ?? null);
+  const [emoji, setEmoji] = useState(product?.emoji ?? '');
+  // Which artwork the card should use. Derived from what the product already
+  // has, so opening an existing product lands on the mode it is actually using.
+  const [mediaMode, setMediaMode] = useState<ProductMediaMode>(
+    product?.imageUrl ? 'IMAGE' : 'EMOJI',
+  );
   const [fulfillmentKind, setFulfillmentKind] = useState<FulfillmentKind>(
     product?.fulfillmentKind ?? 'LICENSE_KEY',
   );
@@ -345,6 +421,21 @@ function ProductForm({
         .map((line) => line.trim())
         .filter(Boolean);
 
+      // Exactly one artwork source is written, and the other is cleared. Leaving
+      // both set would make the card's appearance depend on which field a
+      // component happened to check first.
+      let artwork: { imageUrl: string | null; emoji: string | null };
+      if (mediaMode === 'IMAGE') {
+        if (!imageUrl) throw new Error('Загрузите картинку или выберите эмодзи.');
+        artwork = { imageUrl, emoji: null };
+      } else {
+        const parsedEmoji = emojiSchema.safeParse(emoji);
+        if (!parsedEmoji.success) {
+          throw new Error(parsedEmoji.error.issues[0]?.message ?? 'Укажите эмодзи.');
+        }
+        artwork = { imageUrl: null, emoji: parsedEmoji.data };
+      }
+
       if (isNew) {
         return api.createProduct({
           slug: parsedSlug.data,
@@ -356,6 +447,7 @@ function ProductForm({
           categoryId: categoryId || null,
           isActive,
           sortOrder: 0,
+          ...artwork,
           staticPayload:
             fulfillmentKind === 'LICENSE_KEY' ? null : staticPayload.trim() || null,
           licenseKeys: fulfillmentKind === 'LICENSE_KEY' ? licenseKeys : undefined,
@@ -369,6 +461,7 @@ function ProductForm({
         fulfillmentKind,
         categoryId: categoryId || null,
         isActive,
+        ...artwork,
         staticPayload:
           fulfillmentKind === 'LICENSE_KEY'
             ? undefined
@@ -470,6 +563,39 @@ function ProductForm({
           />
         </Field>
       )}
+      <Field label="Оформление карточки">
+        <div className="row" style={{ gap: 8 }}>
+          <button
+            type="button"
+            className={mediaMode === 'EMOJI' ? 'button' : 'button button--secondary'}
+            onClick={() => setMediaMode('EMOJI')}
+          >
+            Эмодзи
+          </button>
+          <button
+            type="button"
+            className={mediaMode === 'IMAGE' ? 'button' : 'button button--secondary'}
+            onClick={() => setMediaMode('IMAGE')}
+          >
+            Картинка
+          </button>
+        </div>
+      </Field>
+
+      {mediaMode === 'EMOJI' ? (
+        <Field label="Эмодзи для карточки">
+          <input
+            className="input"
+            value={emoji}
+            maxLength={8}
+            onChange={(e) => setEmoji(e.target.value)}
+            placeholder="🎁"
+          />
+        </Field>
+      ) : (
+        <MediaPicker value={imageUrl} onChange={setImageUrl} shape="product" />
+      )}
+
       <Field label="Описание">
         <textarea
           className="input"
@@ -518,6 +644,148 @@ function ProductForm({
             }}
           >
             Скрыть
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function BannerForm({
+  banner,
+  categories,
+  onClose,
+  onSaved,
+}: {
+  banner: Banner | null;
+  categories: Category[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isNew = banner === null;
+  const [title, setTitle] = useState(banner?.title ?? '');
+  const [subtitle, setSubtitle] = useState(banner?.subtitle ?? '');
+  const [imageUrl, setImageUrl] = useState<string | null>(banner?.imageUrl ?? null);
+  // `category:slug` keeps the tap inside the app; an https link leaves it.
+  const [linkUrl, setLinkUrl] = useState(banner?.linkUrl ?? '');
+  const [isActive, setIsActive] = useState(banner?.isActive ?? true);
+  const [error, setError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!title.trim()) throw new Error('Заголовок не может быть пустым.');
+      const fields = {
+        title: title.trim(),
+        subtitle: subtitle.trim() || null,
+        imageUrl,
+        linkUrl: linkUrl.trim() || null,
+        isActive,
+      };
+      if (isNew) return api.createBanner({ ...fields, sortOrder: 0 });
+      return api.updateBanner(banner.id, fields);
+    },
+    onSuccess: () => {
+      haptic('success');
+      onSaved();
+    },
+    onError: (err) => {
+      haptic('error');
+      setError(err instanceof ApiError ? err.message : (err as Error).message);
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api.deleteBanner(banner!.id),
+    onSuccess: () => {
+      haptic('success');
+      onSaved();
+    },
+    onError: (err) => {
+      haptic('error');
+      setError(err instanceof ApiError ? err.message : 'Не удалось удалить.');
+    },
+  });
+
+  return (
+    <div className="card stack" style={{ marginTop: 12 }}>
+      <strong>{isNew ? 'Новый баннер' : 'Баннер'}</strong>
+      <Field label="Заголовок">
+        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </Field>
+      <Field label="Подпись">
+        <input
+          className="input"
+          value={subtitle}
+          onChange={(e) => setSubtitle(e.target.value)}
+        />
+      </Field>
+      <MediaPicker value={imageUrl} onChange={setImageUrl} shape="banner" />
+      <Field label="Куда ведёт">
+        <select
+          className="input"
+          value={linkUrl.startsWith('category:') ? linkUrl : linkUrl ? 'external' : ''}
+          onChange={(e) => {
+            const next = e.target.value;
+            setLinkUrl(next === 'external' ? 'https://' : next);
+          }}
+        >
+          <option value="">Без перехода</option>
+          {categories.map((c) => (
+            <option key={c.id} value={`category:${c.slug}`}>
+              Категория: {c.title}
+            </option>
+          ))}
+          <option value="external">Внешняя ссылка…</option>
+        </select>
+      </Field>
+      {linkUrl && !linkUrl.startsWith('category:') ? (
+        <Field label="Ссылка (только https://)">
+          <input
+            className="input"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            placeholder="https://t.me/…"
+          />
+        </Field>
+      ) : null}
+      <label className="row" style={{ gap: 8 }}>
+        <input
+          type="checkbox"
+          checked={isActive}
+          onChange={(e) => setIsActive(e.target.checked)}
+        />
+        Показывать в магазине
+      </label>
+      {error ? (
+        <p className="hint" style={{ color: 'var(--tg-destructive-text-color)', margin: 0 }}>
+          {error}
+        </p>
+      ) : null}
+      <div className="row">
+        <button
+          type="button"
+          className="button"
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          Сохранить
+        </button>
+        <button type="button" className="button button--secondary" onClick={onClose}>
+          Отмена
+        </button>
+        <div className="spacer" />
+        {!isNew ? (
+          <button
+            type="button"
+            className="button button--danger"
+            disabled={remove.isPending}
+            onClick={() => {
+              void showConfirm('Удалить баннер?').then((ok) => {
+                if (ok) remove.mutate();
+              });
+            }}
+          >
+            Удалить
           </button>
         ) : null}
       </div>

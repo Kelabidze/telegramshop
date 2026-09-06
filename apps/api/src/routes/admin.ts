@@ -12,7 +12,13 @@ import {
   productUpdateSchema,
   shopUserListQuerySchema,
 } from '@shop/shared';
+import { formatBytes, MEDIA_MAX_BYTES } from '@shop/shared';
 import { validationError } from '../errors.js';
+import {
+  deleteMediaByUrl,
+  mediaUsage,
+  storeMedia,
+} from '../services/media.js';
 import {
   createBanner,
   deleteBanner,
@@ -100,6 +106,57 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const { id } = parse(idParamsSchema, request.params, 'category id');
       // Products survive: the relation is SetNull, so they only lose grouping.
       return { category: await deleteCategory(id) };
+    },
+  );
+
+  // ---- media uploads -------------------------------------------------------
+  // Guarded by EDIT_CATALOG: whoever arranges the storefront replaces its
+  // artwork. MANAGE_KEYS holders get the same door through `requireEither`
+  // below, because product images are part of editing a product.
+
+  app.post(
+    '/media',
+    { preHandler: app.requireAnyPermission('EDIT_CATALOG', 'MANAGE_KEYS') },
+    async (request, reply) => {
+      const file = await request.file();
+      if (!file) {
+        throw validationError('Файл не получен.');
+      }
+
+      let bytes: Buffer;
+      try {
+        bytes = await file.toBuffer();
+      } catch {
+        // @fastify/multipart throws once the stream exceeds `fileSize`.
+        throw validationError(
+          `Файл больше допустимого размера (${formatBytes(MEDIA_MAX_BYTES)}).`,
+        );
+      }
+
+      const asset = await storeMedia({
+        bytes,
+        declaredMimeType: file.mimetype,
+      });
+      return reply.code(201).send({ asset });
+    },
+  );
+
+  app.get(
+    '/media/usage',
+    { preHandler: app.requireAnyPermission('EDIT_CATALOG', 'MANAGE_KEYS') },
+    async () => mediaUsage(),
+  );
+
+  app.delete(
+    '/media',
+    { preHandler: app.requireAnyPermission('EDIT_CATALOG', 'MANAGE_KEYS') },
+    async (request) => {
+      const { url } = parse(
+        z.object({ url: z.string().min(1).max(2000) }),
+        request.body,
+        'media url',
+      );
+      return { deleted: await deleteMediaByUrl(url) };
     },
   );
 

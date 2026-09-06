@@ -59,7 +59,11 @@ const productFields = {
   title: z.string().min(1).max(160),
   subtitle: z.string().max(200).nullish(),
   description: z.string().max(4000),
-  imageUrl: z.string().url().max(2000).nullish(),
+  // Not `.url()`: an uploaded file is the same-origin path `/uploads/<name>`,
+  // which is not an absolute URL and would be rejected.
+  imageUrl: z.string().max(2000).nullish(),
+  /** One emoji, shown when there is no image. */
+  emoji: z.string().max(16).nullish(),
   amountMinor: amountMinorSchema,
   currency: currencySchema,
   compareAtMinor: amountMinorSchema.nullish(),

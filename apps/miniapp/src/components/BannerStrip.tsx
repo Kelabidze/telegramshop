@@ -64,16 +64,19 @@ function BannerCard({
     </>
   );
 
+  // Without artwork the 16:9 frame would be mostly empty space.
+  const shape = banner.imageUrl ? 'banner-card' : 'banner-card banner-card--plain';
+
   // A decorative banner is a plain div: rendering it as a button would promise a
   // tap that does nothing, and screen readers would announce a dead control.
   if (!isInteractive) {
-    return <div className="banner-card">{content}</div>;
+    return <div className={shape}>{content}</div>;
   }
 
   return (
     <button
       type="button"
-      className="banner-card banner-card--tappable"
+      className={`${shape} banner-card--tappable`}
       onClick={() => {
         haptic('tap');
         // An in-app target filters the catalog instead of leaving the Mini App:

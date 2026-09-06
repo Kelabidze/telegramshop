@@ -219,6 +219,11 @@ function ProductCard({
 
   return (
     <button type="button" className="product-card" onClick={onClick}>
+      {/*
+        Image wins over emoji when both are set, and the emoji covers the case
+        where nobody uploaded artwork. `🎁` remains the last resort so a card is
+        never a blank square.
+      */}
       {product.imageUrl ? (
         <img
           className="product-card__media"
@@ -227,7 +232,7 @@ function ProductCard({
           loading="lazy"
         />
       ) : (
-        <div className="product-card__media">🎁</div>
+        <div className="product-card__media">{product.emoji || '🎁'}</div>
       )}
       <div className="product-card__body">
         <div className="product-card__title">{product.title}</div>

@@ -44,6 +44,9 @@ process.env.ADMIN_TELEGRAM_IDS = '';
 process.env.LOG_LEVEL = 'silent';
 process.env.CORS_ORIGINS = '';
 process.env.TELEGRAM_API_ROOT = 'http://127.0.0.1:9';
+// Uploads go to the throwaway work directory, which `after` removes: otherwise
+// the suite would litter the real uploads folder and its quota.
+process.env.UPLOADS_DIR = path.join(workDir, 'uploads');
 
 type App = Awaited<ReturnType<typeof import('../server.ts')['buildServer']>>;
 
@@ -145,6 +148,9 @@ const ACCESS: Array<Call & { needs: Permission }> = [
   { method: 'PUT', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG', body: {} },
   { method: 'DELETE', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG' },
   { method: 'GET', url: '/api/products/all', needs: 'MANAGE_KEYS' },
+  // Media is reachable with EITHER catalog permission, so the shared table
+  // (which asserts one specific permission) cannot describe it. Covered by its
+  // own tests below.
   { method: 'POST', url: '/api/products', needs: 'MANAGE_KEYS', body: {} },
   { method: 'PUT', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS', body: {} },
   { method: 'DELETE', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS' },
@@ -289,6 +295,134 @@ describe('category management', () => {
       null,
       'the product must survive with its category detached',
     );
+  });
+});
+
+describe('media uploads', () => {
+  /** A tiny but structurally valid PNG. */
+  const PNG = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52,
+  ]);
+
+  function multipart(body: Buffer, filename: string, contentType: string) {
+    const boundary = '----shoptestboundary';
+    const head = Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+        `Content-Type: ${contentType}\r\n\r\n`,
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
+    return {
+      payload: Buffer.concat([head, body, tail]),
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    };
+  }
+
+  it('rejects an anonymous upload', async () => {
+    const { payload, headers } = multipart(PNG, 'a.png', 'image/png');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/media',
+      headers,
+      payload,
+    });
+    assert.equal(res.statusCode, 401);
+  });
+
+  it('rejects a plain buyer', async () => {
+    const { payload, headers } = multipart(PNG, 'a.png', 'image/png');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/media',
+      headers: { ...headers, ...authHeader(IDS.buyer) },
+      payload,
+    });
+    assert.equal(res.statusCode, 403);
+  });
+
+  it('accepts either catalog permission, since both edit the storefront', async () => {
+    for (const who of [IDS.catalogManager, IDS.keyManager]) {
+      const { payload, headers } = multipart(PNG, 'a.png', 'image/png');
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/media',
+        headers: { ...headers, ...authHeader(who) },
+        payload,
+      });
+      assert.equal(res.statusCode, 201, `${who}: ${res.body}`);
+      const { asset } = res.json();
+      assert.match(
+        asset.url,
+        /^\/uploads\/[0-9a-f]{32}\.png$/,
+        'the stored name must be generated, never taken from the client',
+      );
+      assert.equal(asset.mimeType, 'image/png');
+      assert.equal(asset.kind, 'IMAGE');
+    }
+  });
+
+  it('refuses a file whose content is not an accepted image', async () => {
+    // Named .png and labelled image/png, but the bytes are a script. Trusting
+    // the declared type here is how an upload endpoint starts serving scripts.
+    const { payload, headers } = multipart(
+      Buffer.from('<script>alert(1)</script>'),
+      'evil.png',
+      'image/png',
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/media',
+      headers: { ...headers, ...authHeader(IDS.catalogManager) },
+      payload,
+    });
+    assert.equal(res.statusCode, 400, res.body);
+    assert.equal(res.json().error.code, 'VALIDATION_ERROR');
+  });
+
+  it('serves an uploaded file back with nosniff', async () => {
+    const { payload, headers } = multipart(PNG, 'a.png', 'image/png');
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/media',
+      headers: { ...headers, ...authHeader(IDS.catalogManager) },
+      payload,
+    });
+    const { asset } = created.json();
+
+    const res = await app.inject({ method: 'GET', url: asset.url });
+    assert.equal(res.statusCode, 200);
+    assert.equal(
+      res.headers['x-content-type-options'],
+      'nosniff',
+      'user-supplied bytes must never be re-sniffed by the browser',
+    );
+  });
+
+  it('reports storage usage for the admin UI', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/media/usage',
+      headers: authHeader(IDS.catalogManager),
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const usage = res.json();
+    assert.ok(usage.fileCount >= 1);
+    assert.ok(usage.usedBytes > 0);
+    assert.ok(usage.quotaBytes > usage.usedBytes);
+  });
+
+  it('ignores a delete request pointing outside the uploads directory', async () => {
+    // Path traversal: the basename must match the generated pattern, so this is
+    // a no-op rather than an unlink of something else.
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/media',
+      headers: authHeader(IDS.catalogManager),
+      payload: { url: '/uploads/../../../etc/passwd' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.json().deleted, false);
   });
 });
 

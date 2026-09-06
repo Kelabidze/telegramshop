@@ -418,6 +418,24 @@ select.input {
   margin-top: 16px;
 }
 
+/* ---------- media picker ---------- */
+
+.media-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+
+.media-preview__image {
+  width: 96px;
+  /* 16:9 preview even for square product art: the point is to confirm the file
+     uploaded, not to judge composition. */
+  height: 54px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--tg-secondary-bg-color);
+}
+
 /* Name and its edit affordance on one line, centred as a pair. */
 .profile-hero__name-row {
   display: flex;
@@ -574,9 +592,11 @@ select.input {
 
 /* ---------- promo banners ---------- */
 
+/* One per row, full width: a banner is a poster, and two of them side by side
+   left the artwork too small to read on a phone. */
 .banner-strip {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   margin-bottom: 16px;
 }
@@ -586,8 +606,13 @@ select.input {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  min-height: 92px;
-  padding: 10px;
+  width: 100%;
+  /* 16:9 is the media standard for banner artwork, so the frame matches the
+     asset and nothing gets letterboxed. `min-height` keeps a text-only banner
+     usable when there is no image at all. */
+  aspect-ratio: 16 / 9;
+  min-height: 96px;
+  padding: 12px;
   border: none;
   border-radius: var(--radius);
   background: var(--tg-section-bg-color);
@@ -595,6 +620,11 @@ select.input {
   font: inherit;
   text-align: left;
   overflow: hidden;
+}
+
+/* Without artwork the 16:9 box is mostly empty; collapse it to the text. */
+.banner-card--plain {
+  aspect-ratio: auto;
 }
 
 .banner-card--tappable {
@@ -639,7 +669,7 @@ select.input {
 }
 
 .banner-card__title {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -647,7 +677,7 @@ select.input {
 }
 
 .banner-card__subtitle {
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0.85;
   overflow: hidden;
   text-overflow: ellipsis;
