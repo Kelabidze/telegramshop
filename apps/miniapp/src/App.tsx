@@ -6,6 +6,7 @@ import { useBackButton } from './telegram/buttons.ts';
 import { haptic, isTelegramEnvironment } from './telegram/webapp.ts';
 import { AppLayout, type TabName } from './components/AppLayout.tsx';
 import { CatalogScreen } from './screens/CatalogScreen.tsx';
+import { AbuseScreen } from './screens/AbuseScreen.tsx';
 import { ProductScreen } from './screens/ProductScreen.tsx';
 import { CartScreen } from './screens/CartScreen.tsx';
 import { OrdersScreen } from './screens/OrdersScreen.tsx';
@@ -27,6 +28,7 @@ import { AdminFinanceScreen } from './screens/admin/AdminFinanceScreen.tsx';
  */
 type View =
   | { name: 'catalog' }
+  | { name: 'abuse' }
   | { name: 'product'; slug: string }
   | { name: 'cart' }
   | { name: 'orders' }
@@ -43,8 +45,13 @@ type View =
 function tabForView(view: View, fallback: TabName): TabName {
   switch (view.name) {
     case 'catalog':
-    case 'product':
       return 'catalog';
+    case 'abuse':
+      return 'abuse';
+    // A product can be opened from either listing, so it keeps whichever tab was
+    // lit rather than always claiming the catalog.
+    case 'product':
+      return fallback;
     case 'cart':
       return 'cart';
     case 'orders':
@@ -55,7 +62,12 @@ function tabForView(view: View, fallback: TabName): TabName {
 }
 
 /** Screens that keep the profile header visible. */
-const HEADER_VIEWS = new Set<View['name']>(['catalog', 'cart', 'orders']);
+const HEADER_VIEWS = new Set<View['name']>([
+  'catalog',
+  'abuse',
+  'cart',
+  'orders',
+]);
 
 export function App() {
   const [stack, setStack] = useState<View[]>([{ name: 'catalog' }]);
@@ -164,6 +176,13 @@ export function App() {
         <>
       {current.name === 'catalog' ? (
         <CatalogScreen
+          isSubscribedChannel={isSubscribedChannel}
+          onOpenProduct={(slug) => push({ name: 'product', slug })}
+        />
+      ) : null}
+
+      {current.name === 'abuse' ? (
+        <AbuseScreen
           isSubscribedChannel={isSubscribedChannel}
           onOpenProduct={(slug) => push({ name: 'product', slug })}
         />

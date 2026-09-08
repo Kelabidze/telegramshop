@@ -16,15 +16,19 @@ import { CLUB_TIER_PERCENT, viewerDisplayName } from '@shop/shared';
  * dead control.
  */
 
-export type TabName = 'catalog' | 'cart' | 'orders';
+export type TabName = 'catalog' | 'abuse' | 'cart' | 'orders';
 
 /**
- * The three tabs keep their identity in both modes; only their label, icon and
- * content change. Reusing the slots rather than adding staff-only tabs keeps the
+ * The tab slots keep their identity in both modes; only label, icon and content
+ * change. Reusing the slots rather than adding staff-only tabs keeps the
  * navigation stack, the scroll keys and the back button logic untouched.
+ *
+ * `abuse` has no staff counterpart — its products are managed from the same admin
+ * catalog as everything else — so in staff mode that slot is simply absent.
  */
 const SHOPPER_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
   { name: 'catalog', label: 'Каталог', icon: '🛍' },
+  { name: 'abuse', label: 'Абуз', icon: '🎯' },
   { name: 'cart', label: 'Корзина', icon: '🛒' },
   { name: 'orders', label: 'Заказы', icon: '📦' },
 ];

@@ -55,6 +55,7 @@ const REQUIRED_BUILD_OUTPUTS = [
   // breakage only surfaces on the server as "Cannot find module".
   'apps/api/dist/cli/seed.js',
   'apps/api/dist/cli/seed-banners.js',
+  'apps/api/dist/cli/seed-abuse.js',
   'apps/api/dist/cli/webhook.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',

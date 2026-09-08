@@ -5,6 +5,8 @@ import {
   bannerUpdateSchema,
   categoryInputSchema,
   categoryUpdateSchema,
+  countryInputSchema,
+  countryUpdateSchema,
   cuidSchema,
   managerInputSchema,
   orderListQuerySchema,
@@ -27,11 +29,15 @@ import {
 } from '../services/banners.js';
 import {
   createCategory,
+  createCountry,
   createProduct,
   deactivateProduct,
   deleteCategory,
+  deleteCountry,
+  listAllCountries,
   listAllProducts,
   updateCategory,
+  updateCountry,
   updateProduct,
 } from '../services/admin-catalog.js';
 import { listAllOrders } from '../services/admin-orders.js';
@@ -157,6 +163,45 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         'media url',
       );
       return { deleted: await deleteMediaByUrl(url) };
+    },
+  );
+
+  // ---- countries: EDIT_CATALOG ---------------------------------------------
+  // Same permission as categories: both are storefront taxonomy.
+
+  app.get(
+    '/countries/all',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async () => ({ countries: await listAllCountries() }),
+  );
+
+  app.post(
+    '/countries',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async (request, reply) => {
+      const input = parse(countryInputSchema, request.body, 'country');
+      return reply.code(201).send({ country: await createCountry(input) });
+    },
+  );
+
+  app.put(
+    '/countries/:id',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async (request) => {
+      const { id } = parse(idParamsSchema, request.params, 'country id');
+      const input = parse(countryUpdateSchema, request.body, 'country');
+      return { country: await updateCountry(id, input) };
+    },
+  );
+
+  app.delete(
+    '/countries/:id',
+    { preHandler: app.requirePermission('EDIT_CATALOG') },
+    async (request) => {
+      const { id } = parse(idParamsSchema, request.params, 'country id');
+      // Variations survive and simply lose their label: SetNull, so deleting a
+      // country cannot destroy sellable stock.
+      return { country: await deleteCountry(id) };
     },
   );
 

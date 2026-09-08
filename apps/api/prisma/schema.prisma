@@ -75,9 +75,36 @@ model Category {
   @@index([sortOrder])
 }
 
+/// A country a variation is tied to, e.g. the jurisdiction of a KYC account.
+/// Its own model rather than a string on Product: the storefront shows a country
+/// carousel, and a free-form column would spell "Германия" three ways.
+model Country {
+  id        String  @id @default(cuid())
+  slug      String  @unique
+  title     String
+  /// Flag emoji, shown in the carousel.
+  emoji     String?
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@index([isActive, sortOrder])
+}
+
 /// Fulfillment strategy for a digital product.
 /// Kept as String + app-level enum so SQLite and Postgres behave identically.
 ///   LICENSE_KEY | FILE | LINK
+///
+/// Variations are modelled as child products (`parentId`), not as a separate
+/// table. Everything downstream — LicenseKey stock, OrderLine snapshots, the
+/// conditional UPDATE that makes overselling impossible, the club-tier price
+/// maths — already works per Product, so a variation inherits all of it for
+/// free. A dedicated Variation table would have needed its own stock, its own
+/// order lines and its own copy of those invariants.
 model Product {
   id          String  @id @default(cuid())
   slug        String  @unique
@@ -89,6 +116,10 @@ model Product {
   /// Card artwork: a single emoji, used when `imageUrl` is null.
   /// Either one or the other — the app prefers the image when both are set.
   emoji       String?
+
+  /// Which storefront tab this belongs to: SHOP | ABUSE.
+  /// A string like every other app-level enum here, for SQLite/Postgres parity.
+  section     String  @default("SHOP")
 
   /// Price in the currency's smallest unit (Stars: whole stars).
   amountMinor    Int
@@ -109,11 +140,27 @@ model Product {
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  /// Set on a variation, null on a parent (or a plain standalone product).
+  /// Cascade: deleting a parent removes its variations, which is the only sane
+  /// reading — a variation has no meaning on its own.
+  parentId String?
+  parent   Product?  @relation("ProductVariations", fields: [parentId], references: [id], onDelete: Cascade)
+  variations Product[] @relation("ProductVariations")
+
+  /// Which country this variation is for. Null on parents and on products that
+  /// simply have no country dimension.
+  countryId String?
+  country   Country? @relation(fields: [countryId], references: [id], onDelete: SetNull)
+
   licenseKeys LicenseKey[]
   orderLines  OrderLine[]
 
   @@index([isActive, sortOrder])
   @@index([categoryId])
+  /// The storefront query: active parents of one section, in display order.
+  @@index([section, isActive, parentId, sortOrder])
+  @@index([parentId])
+  @@index([countryId])
 }
 
 /// One unit of sellable stock for LICENSE_KEY products.

@@ -2,11 +2,15 @@
   type Category,
   type CategoryInput,
   type CategoryUpdate,
+  type Country,
+  type CountryInput,
+  type CountryUpdate,
   type Product,
   type ProductInput,
   type ProductUpdate,
   currencySchema,
   fulfillmentKindSchema,
+  productSectionSchema,
 } from '@shop/shared';
 import { prisma } from '../db.js';
 import { conflict, notFound } from '../errors.js';
@@ -199,6 +203,9 @@ export async function createProduct(
         fulfillmentKind: fields.fulfillmentKind,
         staticPayload: fields.staticPayload ?? null,
         categoryId: fields.categoryId ?? null,
+        section: fields.section,
+        parentId: fields.parentId ?? null,
+        countryId: fields.countryId ?? null,
         isActive: fields.isActive,
         sortOrder: fields.sortOrder,
       },
@@ -294,6 +301,9 @@ const STAFF_PRODUCT_SELECT = {
   fulfillmentKind: true,
   categoryId: true,
   isActive: true,
+  section: true,
+  parentId: true,
+  countryId: true,
 } as const;
 
 /**
@@ -309,7 +319,16 @@ const STAFF_PRODUCT_SELECT = {
 export async function listAllProducts(): Promise<Product[]> {
   const rows = await prisma.product.findMany({
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-    select: STAFF_PRODUCT_SELECT,
+    select: {
+      ...STAFF_PRODUCT_SELECT,
+      // Staff see variations as rows of their own — unlike the storefront, where
+      // a parent stands in for them — so the count is what marks a parent.
+      _count: { select: { variations: true } },
+      variations: {
+        where: { isActive: true },
+        select: { amountMinor: true },
+      },
+    },
     take: 500,
   });
 
@@ -334,7 +353,91 @@ export async function listAllProducts(): Promise<Product[]> {
     stock:
       row.fulfillmentKind === 'LICENSE_KEY' ? (stock.get(row.id) ?? 0) : null,
     isActive: row.isActive,
+    section: productSectionSchema.catch('SHOP').parse(row.section),
+    parentId: row.parentId,
+    countryId: row.countryId,
+    variationCount: row._count.variations,
+    minVariationAmountMinor:
+      row.variations.length > 0
+        ? Math.min(...row.variations.map((v) => v.amountMinor))
+        : null,
   }));
+}
+
+// ---- countries -------------------------------------------------------------
+
+const COUNTRY_SELECT = {
+  id: true,
+  slug: true,
+  title: true,
+  emoji: true,
+  sortOrder: true,
+  isActive: true,
+} as const;
+
+/** Every country, including hidden and empty ones — for staff. */
+export async function listAllCountries(): Promise<Country[]> {
+  return prisma.country.findMany({
+    orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
+    select: COUNTRY_SELECT,
+  });
+}
+
+export async function createCountry(input: CountryInput): Promise<Country> {
+  try {
+    return await prisma.country.create({
+      data: {
+        slug: input.slug,
+        title: input.title,
+        emoji: input.emoji ?? null,
+        isActive: input.isActive,
+        sortOrder: input.sortOrder,
+      },
+      select: COUNTRY_SELECT,
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw conflict(`Country slug "${input.slug}" is already in use.`);
+    }
+    throw error;
+  }
+}
+
+export async function updateCountry(
+  id: string,
+  input: CountryUpdate,
+): Promise<Country> {
+  try {
+    return await prisma.country.update({
+      where: { id },
+      data: definedFields(input),
+      select: COUNTRY_SELECT,
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      throw conflict(`Country slug "${String(input.slug)}" is already in use.`);
+    }
+    if (isMissingRecord(error)) {
+      throw notFound(`Country ${id} was not found.`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Deletes a country. Variations keep existing but lose their country label:
+ * the relation is `SetNull`, so removing a country cannot destroy sellable
+ * stock or make paid orders unreadable.
+ */
+export async function deleteCountry(id: string): Promise<Country> {
+  try {
+    return await prisma.country.delete({ where: { id }, select: COUNTRY_SELECT });
+  } catch (error) {
+    if (isMissingRecord(error)) {
+      throw notFound(`Country ${id} was not found.`);
+    }
+    throw error;
+  }
 }
 
 async function staffStockByProduct(

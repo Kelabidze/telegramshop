@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { amountMinorSchema, currencySchema } from './money.js';
-import { cuidSchema, fulfillmentKindSchema, slugSchema } from './catalog.js';
+import {
+  cuidSchema,
+  fulfillmentKindSchema,
+  productSectionSchema,
+  slugSchema,
+} from './catalog.js';
 import { orderSchema, orderStatusSchema } from './order.js';
 import { permissionSchema } from './telegram.js';
 
@@ -45,6 +50,28 @@ export const categoryUpdateSchema = z
   .partial();
 export type CategoryUpdate = z.infer<typeof categoryUpdateSchema>;
 
+// ---- countries -------------------------------------------------------------
+
+const countryFields = {
+  slug: slugSchema,
+  title: z.string().min(1).max(120),
+  emoji: z.string().max(8).nullish(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int().min(0).max(10_000),
+};
+
+export const countryInputSchema = z.object({
+  ...countryFields,
+  isActive: z.boolean().default(true),
+  sortOrder: z.number().int().min(0).max(10_000).default(0),
+});
+export type CountryInput = z.infer<typeof countryInputSchema>;
+
+/** Absent means "leave as is" — not `.partial()` of the input, whose defaults
+ *  would re-activate a country somebody had just hidden. */
+export const countryUpdateSchema = z.object(countryFields).partial();
+export type CountryUpdate = z.infer<typeof countryUpdateSchema>;
+
 // ---- products --------------------------------------------------------------
 
 /**
@@ -73,6 +100,12 @@ const productFields = {
   isActive: z.boolean(),
   sortOrder: z.number().int().min(0).max(10_000),
   licenseKeys: z.array(z.string().min(1).max(500)).max(500).optional(),
+  /** Which storefront tab this belongs to. */
+  section: productSectionSchema,
+  /** Set to make this product a variation of another. */
+  parentId: cuidSchema.nullish(),
+  /** The country a variation is for. */
+  countryId: cuidSchema.nullish(),
 };
 
 export const productInputSchema = z.object({
@@ -83,6 +116,7 @@ export const productInputSchema = z.object({
   fulfillmentKind: fulfillmentKindSchema.default('LICENSE_KEY'),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().min(0).max(10_000).default(0),
+  section: productSectionSchema.default('SHOP'),
 });
 export type ProductInput = z.infer<typeof productInputSchema>;
 

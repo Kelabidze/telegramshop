@@ -7,7 +7,12 @@ import type {
   CategoryInput,
   CategoryUpdate,
   CheckoutSession,
+  Country,
+  CountryInput,
+  CountryUpdate,
   CreateOrderInput,
+  ProductDetail,
+  ProductSection,
   Manager,
   ManagerInput,
   MediaAsset,
@@ -168,10 +173,22 @@ export const api = {
   listBanners: () =>
     request<{ banners: Banner[] }>('/api/banners').then((r) => r.banners),
 
-  listProducts: (params: { category?: string; search?: string } = {}) => {
+  listCountries: () =>
+    request<{ countries: Country[] }>('/api/countries').then((r) => r.countries),
+
+  listProducts: (
+    params: {
+      category?: string;
+      search?: string;
+      section?: ProductSection;
+      country?: string;
+    } = {},
+  ) => {
     const query = new URLSearchParams();
     if (params.category) query.set('category', params.category);
     if (params.search) query.set('q', params.search);
+    if (params.section) query.set('section', params.section);
+    if (params.country) query.set('country', params.country);
     const suffix = query.size > 0 ? `?${query.toString()}` : '';
     return request<{ products: ProductListItem[] }>(
       `/api/products${suffix}`,
@@ -179,7 +196,7 @@ export const api = {
   },
 
   getProduct: (slug: string) =>
-    request<{ product: Product }>(
+    request<{ product: ProductDetail }>(
       `/api/products/${encodeURIComponent(slug)}`,
     ).then((r) => r.product),
 
@@ -266,6 +283,28 @@ export const api = {
 
   listAllBanners: () =>
     request<{ banners: Banner[] }>('/api/banners/all').then((r) => r.banners),
+
+  listAllCountries: () =>
+    request<{ countries: Country[] }>('/api/countries/all').then(
+      (r) => r.countries,
+    ),
+
+  createCountry: (input: CountryInput) =>
+    request<{ country: Country }>('/api/countries', {
+      method: 'POST',
+      body: input,
+    }).then((r) => r.country),
+
+  updateCountry: (id: string, input: CountryUpdate) =>
+    request<{ country: Country }>(`/api/countries/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: input,
+    }).then((r) => r.country),
+
+  deleteCountry: (id: string) =>
+    request<{ country: Country }>(`/api/countries/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then((r) => r.country),
 
   createBanner: (input: BannerInput) =>
     request<{ banner: Banner }>('/api/banners', {

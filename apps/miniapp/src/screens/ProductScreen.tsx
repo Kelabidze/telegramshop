@@ -1,5 +1,10 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { isPurchasable } from '@shop/shared';
+import {
+  hasVariations,
+  isPurchasable,
+  type ProductVariation,
+} from '@shop/shared';
 import { api } from '../api/client.ts';
 import { useCart } from '../store/cart.ts';
 import { useMainButton } from '../telegram/buttons.ts';
@@ -35,28 +40,89 @@ export function ProductScreen({
   const lines = useCart((s) => s.lines);
 
   const product = query.data;
-  const inCart = product
-    ? lines.find((l) => l.productId === product.id)
+  const variations = product?.variations ?? [];
+  const variable = product ? hasVariations(product) : false;
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = variations.find((v) => v.id === selectedId) ?? null;
+
+  /**
+   * What actually goes into the cart.
+   *
+   * A parent with variations has no stock of its own — its license keys live on
+   * the children — so the cart line must be the chosen variation. The server
+   * refuses a parent outright, which is what makes this safe rather than merely
+   * tidy.
+   */
+  const buyable = variable
+    ? selected
+      ? {
+          id: selected.id,
+          slug: selected.slug,
+          title: `${product!.title} — ${selected.title}`,
+          imageUrl: product!.imageUrl,
+          amountMinor: selected.amountMinor,
+          currency: selected.currency,
+          compareAtMinor: selected.compareAtMinor,
+          stock: selected.stock,
+          isActive: selected.isActive,
+        }
+      : null
+    : product
+      ? {
+          id: product.id,
+          slug: product.slug,
+          title: product.title,
+          imageUrl: product.imageUrl,
+          amountMinor: product.amountMinor,
+          currency: product.currency,
+          compareAtMinor: product.compareAtMinor,
+          stock: product.stock,
+          isActive: product.isActive,
+        }
+      : null;
+
+  const inCart = buyable
+    ? lines.find((l) => l.productId === buyable.id)
     : undefined;
-  const available = product ? isPurchasable(product) : false;
+  const available = buyable ? isPurchasable(buyable) : false;
 
   // The native MainButton is the primary action on this screen.
   useMainButton(
     product
       ? {
-          text: !available
-            ? 'Нет в наличии'
-            : inCart
-              ? 'Перейти в корзину'
-              : 'Добавить в корзину',
-          enabled: available,
+          // With variations the button first has to ask for a choice: adding
+          // "something" from a product that has five different prices is not a
+          // decision the app can make for the buyer.
+          text:
+            variable && !selected
+              ? 'Выберите вариант'
+              : !available
+                ? 'Нет в наличии'
+                : inCart
+                  ? 'Перейти в корзину'
+                  : 'Добавить в корзину',
+          enabled: (!variable || selected !== null) && available,
           onClick: () => {
-            if (!available) return;
+            if (!buyable || !available) return;
             if (inCart) {
               onGoToCart();
               return;
             }
-            addToCart(product);
+            addToCart({
+              ...buyable,
+              // The cart only stores what it displays; the server re-reads
+              // everything that decides the price.
+              subtitle: null,
+              emoji: product.emoji,
+              fulfillmentKind: product.fulfillmentKind,
+              categoryId: product.categoryId,
+              section: product.section,
+              parentId: product.parentId,
+              countryId: product.countryId,
+              variationCount: 0,
+              minVariationAmountMinor: null,
+            });
             haptic('success');
             onGoToCart();
           },
@@ -111,20 +177,51 @@ export function ProductScreen({
 
       <div className="row" style={{ margin: '16px 0' }}>
         <span style={{ fontSize: 22 }}>
-          <Price
-            clubTierMinor={product.amountMinor}
-            currency={product.currency}
-            compareAtMinor={product.compareAtMinor}
-            isSubscribedChannel={isSubscribedChannel}
-          />
+          {/*
+            The selected variation's price, or the cheapest one as "от X" before
+            anything is chosen. Showing the parent's own `amountMinor` would be a
+            number nobody is ever charged.
+          */}
+          {variable && !selected ? (
+            <>
+              <span className="hint" style={{ fontSize: 15 }}>
+                от{' '}
+              </span>
+              <Price
+                clubTierMinor={product.minVariationAmountMinor ?? product.amountMinor}
+                currency={product.currency}
+                isSubscribedChannel={isSubscribedChannel}
+              />
+            </>
+          ) : (
+            <Price
+              clubTierMinor={buyable?.amountMinor ?? product.amountMinor}
+              currency={buyable?.currency ?? product.currency}
+              compareAtMinor={buyable?.compareAtMinor ?? null}
+              isSubscribedChannel={isSubscribedChannel}
+            />
+          )}
         </span>
         <div className="spacer" />
-        {!available ? (
+        {variable && !selected ? null : !available ? (
           <span className="badge badge--danger">Нет в наличии</span>
-        ) : product.stock !== null ? (
-          <span className="badge">Осталось {product.stock}</span>
+        ) : buyable?.stock !== null && buyable?.stock !== undefined ? (
+          <span className="badge">Осталось {buyable.stock}</span>
         ) : null}
       </div>
+
+      {variable ? (
+        <VariationPicker
+          variations={variations}
+          selectedId={selectedId}
+          currency={product.currency}
+          isSubscribedChannel={isSubscribedChannel}
+          onSelect={(id) => {
+            haptic('selection');
+            setSelectedId(id);
+          }}
+        />
+      ) : null}
 
       <div className="card stack">
         <p style={{ margin: 0, whiteSpace: 'pre-line' }}>
@@ -145,6 +242,70 @@ export function ProductScreen({
       {!isSubscribedChannel ? (
         <ClubTierNotice isSubscribedChannel={false} variant="product" />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Variation selector.
+ *
+ * A list of explicit options rather than a `<select>`: each one carries a price
+ * and a stock state, and a native dropdown can show neither. Sold-out options
+ * stay visible but disabled — hiding them makes the list change length as stock
+ * moves, which reads as items disappearing at random.
+ */
+function VariationPicker({
+  variations,
+  selectedId,
+  currency,
+  isSubscribedChannel,
+  onSelect,
+}: {
+  variations: ProductVariation[];
+  selectedId: string | null;
+  currency: ProductVariation['currency'];
+  isSubscribedChannel: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="stack" style={{ marginBottom: 16 }}>
+      <span className="hint">Выберите вариант</span>
+      <div className="variation-list">
+        {variations.map((variation) => {
+          const soldOut = !isPurchasable(variation);
+          return (
+            <button
+              key={variation.id}
+              type="button"
+              className="variation-option"
+              aria-pressed={selectedId === variation.id}
+              disabled={soldOut}
+              onClick={() => onSelect(variation.id)}
+            >
+              {variation.country ? (
+                <span className="country-chip__flag" aria-hidden="true">
+                  {variation.country.emoji || '🌍'}
+                </span>
+              ) : null}
+              <span className="variation-option__title">
+                {variation.country?.title ?? variation.title}
+              </span>
+              <span>
+                <Price
+                  clubTierMinor={variation.amountMinor}
+                  currency={currency}
+                  isSubscribedChannel={isSubscribedChannel}
+                />
+              </span>
+              {soldOut ? (
+                <span className="badge badge--danger">Нет</span>
+              ) : variation.stock !== null && variation.stock <= 5 ? (
+                <span className="badge">{variation.stock}</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

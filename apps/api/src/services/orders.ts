@@ -103,6 +103,8 @@ export async function createOrder(
   const productIds = [...quantityByProduct.keys()];
   const products = await prisma.product.findMany({
     where: { id: { in: productIds } },
+    // `_count` rather than loading the children: only the number matters here.
+    include: { _count: { select: { variations: true } } },
   });
 
   if (products.length !== productIds.length) {
@@ -128,6 +130,18 @@ export async function createOrder(
       throw new AppError(
         'PRODUCT_UNAVAILABLE',
         `"${product.title}" is no longer available.`,
+      );
+    }
+
+    // A parent with variations is a grouping, not something with stock: its
+    // license keys live on the children. Ordering it would create a PENDING
+    // order that can never be fulfilled, so it is refused here rather than
+    // discovered at delivery time. The client hides its buy button, but the
+    // client is not what enforces this.
+    if (product._count.variations > 0) {
+      throw new AppError(
+        'PRODUCT_UNAVAILABLE',
+        `"${product.title}": выберите конкретный вариант товара.`,
       );
     }
 

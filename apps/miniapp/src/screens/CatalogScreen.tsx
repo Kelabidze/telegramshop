@@ -1,15 +1,14 @@
 ﻿import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { Category, ProductListItem } from '@shop/shared';
-import { isPurchasable } from '@shop/shared';
+import type { Category } from '@shop/shared';
 import { api } from '../api/client.ts';
 import {
   CategorySkeletonGrid,
   EmptyState,
   ErrorState,
-  Price,
   ProductSkeletonGrid,
 } from '../components/ui.tsx';
+import { ProductGrid } from '../components/ProductGrid.tsx';
 import { BannerStrip } from '../components/BannerStrip.tsx';
 import {
   forgetScrollPosition,
@@ -158,19 +157,11 @@ export function CatalogScreen({
       ) : null}
 
       {productsQuery.data && productsQuery.data.length > 0 ? (
-        <div className="product-grid">
-          {productsQuery.data.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              isSubscribedChannel={isSubscribedChannel}
-              onClick={() => {
-                haptic('tap');
-                onOpenProduct(product.slug);
-              }}
-            />
-          ))}
-        </div>
+        <ProductGrid
+          products={productsQuery.data}
+          isSubscribedChannel={isSubscribedChannel}
+          onOpenProduct={onOpenProduct}
+        />
       ) : null}
     </div>
   );
@@ -203,52 +194,5 @@ function CategoryGrid({
         </button>
       ))}
     </div>
-  );
-}
-
-function ProductCard({
-  product,
-  isSubscribedChannel,
-  onClick,
-}: {
-  product: ProductListItem;
-  isSubscribedChannel: boolean;
-  onClick: () => void;
-}) {
-  const available = isPurchasable(product);
-
-  return (
-    <button type="button" className="product-card" onClick={onClick}>
-      {/*
-        Image wins over emoji when both are set, and the emoji covers the case
-        where nobody uploaded artwork. `🎁` remains the last resort so a card is
-        never a blank square.
-      */}
-      {product.imageUrl ? (
-        <img
-          className="product-card__media"
-          src={product.imageUrl}
-          alt={product.title}
-          loading="lazy"
-        />
-      ) : (
-        <div className="product-card__media">{product.emoji || '🎁'}</div>
-      )}
-      <div className="product-card__body">
-        <div className="product-card__title">{product.title}</div>
-        <div className="spacer" />
-        <Price
-          clubTierMinor={product.amountMinor}
-          currency={product.currency}
-          compareAtMinor={product.compareAtMinor}
-          isSubscribedChannel={isSubscribedChannel}
-        />
-        {!available ? (
-          <span className="badge badge--danger">Нет в наличии</span>
-        ) : product.stock !== null && product.stock <= 5 ? (
-          <span className="badge">Осталось {product.stock}</span>
-        ) : null}
-      </div>
-    </button>
   );
 }

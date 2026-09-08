@@ -147,6 +147,10 @@ const ACCESS: Array<Call & { needs: Permission }> = [
   { method: 'POST', url: '/api/banners', needs: 'EDIT_CATALOG', body: {} },
   { method: 'PUT', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG', body: {} },
   { method: 'DELETE', url: '/api/banners/ban00000000', needs: 'EDIT_CATALOG' },
+  { method: 'GET', url: '/api/countries/all', needs: 'EDIT_CATALOG' },
+  { method: 'POST', url: '/api/countries', needs: 'EDIT_CATALOG', body: {} },
+  { method: 'PUT', url: '/api/countries/cnt00000000', needs: 'EDIT_CATALOG', body: {} },
+  { method: 'DELETE', url: '/api/countries/cnt00000000', needs: 'EDIT_CATALOG' },
   { method: 'GET', url: '/api/products/all', needs: 'MANAGE_KEYS' },
   // Media is reachable with EITHER catalog permission, so the shared table
   // (which asserts one specific permission) cannot describe it. Covered by its

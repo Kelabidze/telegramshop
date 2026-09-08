@@ -1,8 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { productSectionSchema } from '@shop/shared';
 import {
   getProductBySlug,
   listCategories,
+  listCountries,
   listProducts,
 } from '../services/catalog.js';
 import { listActiveBanners } from '../services/banners.js';
@@ -11,6 +13,8 @@ import { validationError } from '../errors.js';
 const listQuerySchema = z.object({
   category: z.string().min(1).max(64).optional(),
   q: z.string().min(1).max(100).optional(),
+  section: productSectionSchema.optional(),
+  country: z.string().min(1).max(64).optional(),
 });
 
 export const catalogRoutes: FastifyPluginAsync = async (app) => {
@@ -29,9 +33,15 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
     const products = await listProducts({
       categorySlug: parsed.data.category,
       search: parsed.data.q,
+      section: parsed.data.section,
+      countrySlug: parsed.data.country,
     });
     return { products };
   });
+
+  // Public, like categories: the «Всё для Абуза» carousel renders before the
+  // viewer is known.
+  app.get('/countries', async () => ({ countries: await listCountries() }));
 
   app.get('/products/:slug', async (request) => {
     const params = z

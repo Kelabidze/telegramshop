@@ -317,17 +317,110 @@ select.input {
 
 .tab-bar__item {
   flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
-  padding: 10px 0;
+  padding: 10px 2px;
   cursor: pointer;
   color: var(--tg-hint-color);
   font: inherit;
-  font-size: 11px;
+  /* Four tabs on a narrow phone: 10px keeps every label on one line. */
+  font-size: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- country carousel ---------- */
+
+/*
+ * Horizontal scroller, unlike the category grid: countries are a long flat list
+ * with no natural grouping, and a wrapping grid of twenty flags would push the
+ * products off the screen entirely.
+ */
+.country-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.country-row::-webkit-scrollbar {
+  display: none;
+}
+
+.country-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--tg-section-bg-color);
+  color: var(--tg-text-color);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.country-chip[aria-pressed='true'] {
+  background: var(--tg-button-color);
+  color: var(--tg-button-text-color);
+}
+
+.country-chip__flag {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ---------- variation selector ---------- */
+
+.variation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.variation-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--tg-secondary-bg-color);
+  border-radius: var(--radius);
+  background: var(--tg-section-bg-color);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.variation-option[aria-pressed='true'] {
+  border-color: var(--tg-button-color);
+  box-shadow: inset 0 0 0 1px var(--tg-button-color);
+}
+
+.variation-option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.variation-option__title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tab-bar__item[aria-current='page'] {

@@ -15,6 +15,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx --env-file-if-exists=.env src/cli/seed.ts",
     "db:seed:banners": "tsx --env-file-if-exists=.env src/cli/seed-banners.ts",
+    "db:seed:abuse": "tsx --env-file-if-exists=.env src/cli/seed-abuse.ts",
     "bot:set-webhook": "tsx --env-file-if-exists=.env src/cli/webhook.ts set",
     "bot:delete-webhook": "tsx --env-file-if-exists=.env src/cli/webhook.ts delete"
   },
