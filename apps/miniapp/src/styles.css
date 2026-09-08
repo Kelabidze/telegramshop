@@ -852,6 +852,15 @@ select.input {
   color: var(--tg-destructive-text-color);
 }
 
+/*
+ * "Coming soon", not "sold out". Deliberately the link colour rather than the
+ * destructive one: an unfilled section root is a promise, and red reads as a
+ * failure the shop should apologise for.
+ */
+.badge--soon {
+  color: var(--tg-link-color);
+}
+
 /* ---------- buttons ---------- */
 
 .button {

@@ -1,5 +1,6 @@
 import {
   hasVariations,
+  isAwaitingVariations,
   isPurchasable,
   type ProductListItem,
 } from '@shop/shared';
@@ -49,6 +50,9 @@ function ProductCard({
 }) {
   const available = isPurchasable(product);
   const variable = hasVariations(product);
+  // A section root with no country variations yet: no price of its own to show
+  // and nothing to be out of stock of.
+  const awaiting = isAwaitingVariations(product);
 
   return (
     <button type="button" className="product-card" onClick={onClick}>
@@ -75,8 +79,13 @@ function ProductCard({
           A parent's own `amountMinor` is not what anyone pays — the variations
           carry the real prices — so the card shows the cheapest one as "от X".
           Printing the parent's price would understate or overstate every option.
+
+          An unfilled root shows no price at all: its stored 0 is a placeholder,
+          not an offer, and «Бесплатно» is the one reading that would cost money
+          to correct.
         */}
-        {variable && product.minVariationAmountMinor !== null ? (
+        {awaiting ? null : variable &&
+          product.minVariationAmountMinor !== null ? (
           <span className="hint">
             от{' '}
             <Price
@@ -94,7 +103,9 @@ function ProductCard({
           />
         )}
 
-        {!available ? (
+        {awaiting ? (
+          <span className="badge badge--soon">Ожидается поступление</span>
+        ) : !available ? (
           <span className="badge badge--danger">Нет в наличии</span>
         ) : variable ? (
           <span className="badge">{variationLabel(product.variationCount)}</span>

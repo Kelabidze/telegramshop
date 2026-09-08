@@ -13,7 +13,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { effectiveUnitMinor, type Viewer } from '@shop/shared';
+import {
+  effectiveUnitMinor,
+  isAwaitingVariations,
+  type Viewer,
+} from '@shop/shared';
 
 const workDir = mkdtempSync(path.join(tmpdir(), 'shop-variations-test-'));
 const dbFile = path.join(workDir, 'test.db');
@@ -218,6 +222,76 @@ describe('product page', () => {
       first.variations.map((v) => v.slug),
       second.variations.map((v) => v.slug),
     );
+  });
+});
+
+/**
+ * The «awaiting stock» state of a section root.
+ *
+ * A root is sold through its country variations, so before any exist it has no
+ * price and no stock of its own. Rendered from the raw fields that comes out as
+ * «Бесплатно» beside «Нет в наличии» — two false statements about one
+ * placeholder, and the first of them invites a tap that cannot end in a sale.
+ * The predicate is shared, so the grid, the product page and the admin panel
+ * cannot disagree about which products are in this state.
+ */
+describe('unfilled section roots', () => {
+  it('marks an ABUSE root that has no variations yet', async () => {
+    const [root] = await catalog.listProducts({ section: 'ABUSE' });
+    // `bybit` has two variations, so it is a normal parent, not a placeholder.
+    assert.equal(isAwaitingVariations(root!), false);
+
+    const empty = await prisma.product.create({
+      data: {
+        slug: 'empty-root',
+        title: 'Пустой родитель',
+        section: 'ABUSE',
+        amountMinor: 0,
+        fulfillmentKind: 'LICENSE_KEY',
+      },
+    });
+    const listed = await catalog.listProducts({ section: 'ABUSE' });
+    const placeholder = listed.find((p) => p.slug === 'empty-root');
+    assert.equal(placeholder?.variationCount, 0);
+    assert.equal(placeholder?.amountMinor, 0, 'the 0 that used to read as free');
+    assert.equal(isAwaitingVariations(placeholder!), true);
+
+    await prisma.product.delete({ where: { id: empty.id } });
+  });
+
+  it('never marks an ordinary shop product, however cheap or sold out', async () => {
+    // The section is part of the check on purpose: without it a genuinely free
+    // item, or one that has honestly run out, would be relabelled as "coming
+    // soon" — a promise the shop never made.
+    const [shopItem] = await catalog.listProducts({ section: 'SHOP' });
+    assert.equal(shopItem!.variationCount, 0);
+    assert.equal(isAwaitingVariations(shopItem!), false);
+
+    assert.equal(
+      isAwaitingVariations({
+        section: 'SHOP',
+        parentId: null,
+        variationCount: 0,
+      }),
+      false,
+      'a free SHOP product is free, not awaiting stock',
+    );
+  });
+
+  it('never marks a variation, which is bought directly', async () => {
+    // A child has no children of its own, so only `parentId` separates it from
+    // a placeholder. Losing that check would hide the price of every variation.
+    const detail = await catalog.getProductBySlug('bybit');
+    const usa = detail.variations.find((v) => v.country?.slug === 'usa');
+    assert.equal(
+      isAwaitingVariations({
+        section: 'ABUSE',
+        parentId: parentId,
+        variationCount: 0,
+      }),
+      false,
+    );
+    assert.ok(usa, 'the variation itself still carries a real price');
   });
 });
 

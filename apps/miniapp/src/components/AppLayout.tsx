@@ -23,8 +23,9 @@ export type TabName = 'catalog' | 'abuse' | 'cart' | 'orders';
  * change. Reusing the slots rather than adding staff-only tabs keeps the
  * navigation stack, the scroll keys and the back button logic untouched.
  *
- * `abuse` has no staff counterpart — its products are managed from the same admin
- * catalog as everything else — so in staff mode that slot is simply absent.
+ * The `abuse` slot exists in both modes because the section is edited along its
+ * own axis — roots, their countries, and the country list — which does not fit
+ * beside the category-shaped catalog screen.
  */
 const SHOPPER_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
   { name: 'catalog', label: 'Каталог', icon: '🛍' },
@@ -35,6 +36,7 @@ const SHOPPER_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }
 
 const STAFF_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
   { name: 'catalog', label: 'Каталог', icon: '🗂' },
+  { name: 'abuse', label: 'Абуз', icon: '🎯' },
   { name: 'cart', label: 'Люди', icon: '👥' },
   { name: 'orders', label: 'Финансы', icon: '💰' },
 ];

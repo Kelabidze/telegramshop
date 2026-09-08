@@ -12,6 +12,7 @@ import { CartScreen } from './screens/CartScreen.tsx';
 import { OrdersScreen } from './screens/OrdersScreen.tsx';
 import { ProfileScreen } from './screens/ProfileScreen.tsx';
 import { AdminCatalogScreen } from './screens/admin/AdminCatalogScreen.tsx';
+import { AdminAbuseScreen } from './screens/admin/AdminAbuseScreen.tsx';
 import { AdminUsersScreen } from './screens/admin/AdminUsersScreen.tsx';
 import { AdminFinanceScreen } from './screens/admin/AdminFinanceScreen.tsx';
 
@@ -166,6 +167,7 @@ export function App() {
       {isStaffMode ? (
         <>
           {current.name === 'catalog' ? <AdminCatalogScreen /> : null}
+          {current.name === 'abuse' ? <AdminAbuseScreen /> : null}
           {current.name === 'cart' ? <AdminUsersScreen /> : null}
           {current.name === 'orders' ? <AdminFinanceScreen /> : null}
           {current.name === 'profile' ? (

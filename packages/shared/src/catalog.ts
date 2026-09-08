@@ -142,6 +142,30 @@ export function hasVariations(
 }
 
 /**
+ * True for a section root nobody has filled in yet.
+ *
+ * An ABUSE product is sold through its country variations, so a root without any
+ * has neither a price nor stock of its own: `amountMinor` is 0 by convention
+ * (see `cli/seed-abuse.ts`) and there are no license keys. Rendered naively that
+ * comes out as «Бесплатно» next to «Нет в наличии» — two false claims about one
+ * empty placeholder, and the first of them invites a tap that can never end in a
+ * purchase.
+ *
+ * The section is part of the check deliberately. Without it a genuinely free
+ * SHOP item, or a standalone product that has honestly sold out, would be
+ * relabelled «Ожидается поступление» — a promise the shop has not made.
+ */
+export function isAwaitingVariations(
+  product: Pick<Product, 'section' | 'parentId' | 'variationCount'>,
+): boolean {
+  return (
+    product.section === 'ABUSE' &&
+    product.parentId === null &&
+    product.variationCount === 0
+  );
+}
+
+/**
  * Product as staff see it: the public shape plus `description`.
  *
  * Still without `staticPayload`. That field is the product the buyer pays for,

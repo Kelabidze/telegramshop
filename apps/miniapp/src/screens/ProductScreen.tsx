@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   hasVariations,
+  isAwaitingVariations,
   isPurchasable,
   type ProductVariation,
 } from '@shop/shared';
@@ -42,6 +43,9 @@ export function ProductScreen({
   const product = query.data;
   const variations = product?.variations ?? [];
   const variable = product ? hasVariations(product) : false;
+  // An ABUSE root whose variations have not been added yet. Same predicate as
+  // the grid, so the card and the page it opens cannot disagree.
+  const awaiting = product ? isAwaitingVariations(product) : false;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = variations.find((v) => v.id === selectedId) ?? null;
@@ -52,35 +56,37 @@ export function ProductScreen({
    * A parent with variations has no stock of its own — its license keys live on
    * the children — so the cart line must be the chosen variation. The server
    * refuses a parent outright, which is what makes this safe rather than merely
-   * tidy.
+   * tidy. An unfilled root is the same case with nothing to choose from, so it
+   * offers nothing.
    */
-  const buyable = variable
-    ? selected
-      ? {
-          id: selected.id,
-          slug: selected.slug,
-          title: `${product!.title} — ${selected.title}`,
-          imageUrl: product!.imageUrl,
-          amountMinor: selected.amountMinor,
-          currency: selected.currency,
-          compareAtMinor: selected.compareAtMinor,
-          stock: selected.stock,
-          isActive: selected.isActive,
-        }
-      : null
-    : product
-      ? {
-          id: product.id,
-          slug: product.slug,
-          title: product.title,
-          imageUrl: product.imageUrl,
-          amountMinor: product.amountMinor,
-          currency: product.currency,
-          compareAtMinor: product.compareAtMinor,
-          stock: product.stock,
-          isActive: product.isActive,
-        }
-      : null;
+  const buyable =
+    variable || awaiting
+      ? selected
+        ? {
+            id: selected.id,
+            slug: selected.slug,
+            title: `${product!.title} — ${selected.title}`,
+            imageUrl: product!.imageUrl,
+            amountMinor: selected.amountMinor,
+            currency: selected.currency,
+            compareAtMinor: selected.compareAtMinor,
+            stock: selected.stock,
+            isActive: selected.isActive,
+          }
+        : null
+      : product
+        ? {
+            id: product.id,
+            slug: product.slug,
+            title: product.title,
+            imageUrl: product.imageUrl,
+            amountMinor: product.amountMinor,
+            currency: product.currency,
+            compareAtMinor: product.compareAtMinor,
+            stock: product.stock,
+            isActive: product.isActive,
+          }
+        : null;
 
   const inCart = buyable
     ? lines.find((l) => l.productId === buyable.id)
@@ -93,16 +99,18 @@ export function ProductScreen({
       ? {
           // With variations the button first has to ask for a choice: adding
           // "something" from a product that has five different prices is not a
-          // decision the app can make for the buyer.
-          text:
-            variable && !selected
+          // decision the app can make for the buyer. An unfilled root has no
+          // choice to offer, so the button states the wait instead.
+          text: awaiting
+            ? 'Ожидается поступление'
+            : variable && !selected
               ? 'Выберите вариант'
               : !available
                 ? 'Нет в наличии'
                 : inCart
                   ? 'Перейти в корзину'
                   : 'Добавить в корзину',
-          enabled: (!variable || selected !== null) && available,
+          enabled: !awaiting && (!variable || selected !== null) && available,
           onClick: () => {
             if (!buyable || !available) return;
             if (inCart) {
@@ -180,9 +188,10 @@ export function ProductScreen({
           {/*
             The selected variation's price, or the cheapest one as "от X" before
             anything is chosen. Showing the parent's own `amountMinor` would be a
-            number nobody is ever charged.
+            number nobody is ever charged — and on an unfilled root it is 0,
+            which reads as a giveaway, so that case shows no price at all.
           */}
-          {variable && !selected ? (
+          {awaiting ? null : variable && !selected ? (
             <>
               <span className="hint" style={{ fontSize: 15 }}>
                 от{' '}
@@ -203,12 +212,27 @@ export function ProductScreen({
           )}
         </span>
         <div className="spacer" />
-        {variable && !selected ? null : !available ? (
+        {awaiting ? (
+          <span className="badge badge--soon">Ожидается поступление</span>
+        ) : variable && !selected ? null : !available ? (
           <span className="badge badge--danger">Нет в наличии</span>
         ) : buyable?.stock !== null && buyable?.stock !== undefined ? (
           <span className="badge">Осталось {buyable.stock}</span>
         ) : null}
       </div>
+
+      {/*
+        Nothing to pick and nothing to buy — say so where the selector would be,
+        rather than leaving an empty gap under the title.
+      */}
+      {awaiting ? (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <p className="hint" style={{ margin: 0 }}>
+            Варианты для этого товара ещё не добавлены. Мы пополняем раздел —
+            заглядывайте позже.
+          </p>
+        </div>
+      ) : null}
 
       {variable ? (
         <VariationPicker
