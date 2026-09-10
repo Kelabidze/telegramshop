@@ -288,7 +288,7 @@ fi
 node -e "import('@prisma/adapter-better-sqlite3').then(()=>{},e=>{console.error(e.message);process.exit(1)})" \
   || fail "the bundled SQLite driver did not load; the artifact was likely built for a different Node ABI or platform"
 
-# --- 6. database schema ----------------------------------------------------
+# --- 7. database schema ----------------------------------------------------
 log "Applying database schema"
 # `db push` only adds missing tables and columns. It never drops data unless the
 # schema itself removed something. The Prisma CLI travels inside the artifact,
@@ -317,7 +317,37 @@ node apps/api/dist/cli/seed-banners.js \
 echo "$COMMIT" > "$RELEASE/.deployed-commit"
 cp -f "$RELEASE/artifact.json" "$RELEASE/.artifact.json" 2>/dev/null || true
 
-# --- 7. switch over atomically --------------------------------------------
+# --- 8. synchronise the Caddy config ---------------------------------------
+# The reverse-proxy config is part of the deployable state, so it is installed
+# from the commit being deployed rather than only at provisioning time. It used
+# to reach the server exclusively through setup-server.sh, which runs once: the
+# `handle /uploads/*` block sat committed but uninstalled for five deploys, and
+# banner images came back as index.html with a 200.
+#
+# Placed BEFORE the symlink switch on purpose. Everything up to here is
+# reversible without touching the live site, so a config that fails to validate
+# costs a failed deploy and nothing else — the current release keeps serving. The
+# script itself never modifies the live config until the new one has validated.
+#
+# Nothing happens when the rendered config matches what is installed, which is
+# the usual case: an ordinary deploy does not reload Caddy at all.
+log "Synchronising the Caddy config"
+CADDY_SYNC="$APP_ROOT/repo/deploy/sync-caddy.sh"
+if [[ -f "$CADDY_SYNC" ]]; then
+  # No `|| true`: a config that cannot be installed is a broken deploy, and the
+  # workflow's public health check would otherwise report success while the
+  # server still runs a config from an older commit — exactly the silent drift
+  # this whole change exists to remove.
+  APP_ROOT="$APP_ROOT" bash "$CADDY_SYNC" apply \
+    || fail "Caddy config sync failed; nothing was switched and the current release keeps serving."
+  CADDY_SYNCED=1
+else
+  # An artifact newer than the checkout: the workflow pins /srv/shop/repo to the
+  # deployed SHA before running this script, so this means the checkout is stale.
+  echo "    WARNING: ${CADDY_SYNC} not found; skipping (is /srv/shop/repo on the deployed commit?)"
+fi
+
+# --- 9. switch over atomically --------------------------------------------
 log "Switching to the new release"
 PREVIOUS=""
 [[ -L "$CURRENT_LINK" ]] && PREVIOUS="$(readlink -f "$CURRENT_LINK")"
@@ -332,7 +362,7 @@ log "Restarting ${SERVICE}"
 sudo -n systemctl restart "$SERVICE" \
   || fail "could not restart ${SERVICE}; check the sudoers rule for this user"
 
-# --- 8. health check, roll back on failure --------------------------------
+# --- 10. health check, roll back on failure -------------------------------
 log "Health check"
 HEALTH_URL="http://127.0.0.1:${PORT:-8080}/health"
 HEALTHY=0
@@ -351,6 +381,22 @@ if [[ "$HEALTHY" -ne 1 ]]; then
     ln -sfnT "$PREVIOUS" "${CURRENT_LINK}.new"
     mv -Tf "${CURRENT_LINK}.new" "$CURRENT_LINK"
     sudo -n systemctl restart "$SERVICE" || true
+
+    # The config goes back with the code. Leaving the new Caddyfile in place
+    # while the application returns to the previous release is a mismatch nobody
+    # would think to look for — and it only gets worse once a config change
+    # depends on the release it shipped with.
+    #
+    # `|| true`: the release rollback above is what restores service, and this
+    # must not mask the health-check failure with a config error. sync-caddy.sh
+    # validates before installing, so the worst case here is that the config is
+    # left alone.
+    if [[ "${CADDY_SYNCED:-0}" == "1" ]]; then
+      log "Restoring the previous Caddy config"
+      APP_ROOT="$APP_ROOT" bash "$CADDY_SYNC" restore \
+        || echo "    WARNING: could not restore the previous Caddy config; check it by hand"
+    fi
+
     # Keep the failed release on disk: its logs and node_modules are what make
     # the failure diagnosable.
     fail "deploy rolled back; check: journalctl -u ${SERVICE} -n 50"
@@ -361,7 +407,7 @@ fi
 curl -fsS --max-time 3 "$HEALTH_URL" || true
 echo
 
-# --- 9. prune what the new release displaced -------------------------------
+# --- 11. prune what the new release displaced ------------------------------
 # Most of the work was already done before unpacking. This pass exists because
 # the live release has changed since then: the deploy we just replaced is now an
 # ordinary directory and becomes the rollback target, so the previous one can go.
@@ -371,7 +417,7 @@ prune_releases "$KEEP_RELEASES"
 # Fail loudly if pruning somehow broke the symlink.
 [[ -d "$CURRENT_LINK" ]] || fail "current symlink is broken after pruning"
 
-# --- 10. drop the consumed artifact ---------------------------------------
+# --- 12. drop the consumed artifact ---------------------------------------
 # ~100 MB per deploy that nothing reads again: the release is unpacked, live and
 # healthy, and CI uploads a fresh copy on every run. Keeping it only shortens the
 # time until the disk fills up again.

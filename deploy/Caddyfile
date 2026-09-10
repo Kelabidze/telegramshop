@@ -3,8 +3,16 @@
 # Caddy obtains and renews a Let's Encrypt certificate automatically, which is
 # what Telegram requires: Mini Apps only open over HTTPS with a valid cert.
 #
-# Installed to /etc/caddy/Caddyfile by deploy/setup-server.sh, which rewrites
-# the domain from the DOMAIN variable. Edit there, not here, or re-run setup.
+# THIS FILE IS THE SOURCE OF TRUTH. Every deploy synchronises it to
+# /etc/caddy/Caddyfile through deploy/sync-caddy.sh, which rewrites the site
+# address to the server's domain, validates the result and only then installs
+# it. Edit here and deploy; a change made directly on the server is overwritten
+# by the next deploy that touches the config.
+#
+# It did not always work that way: the config used to be installed only by
+# setup-server.sh, which runs once at provisioning. The `handle /uploads/*`
+# block below sat committed but uninstalled for five deploys, and banner images
+# came back as index.html with a 200.
 
 ochkisk.shop {
 	encode zstd gzip

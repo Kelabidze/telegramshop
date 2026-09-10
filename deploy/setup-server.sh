@@ -192,26 +192,34 @@ echo "==> Configuring Caddy for ${DOMAIN}"
 # Take the configs from the clone, not from $(dirname $0): that way this script
 # also works when piped straight from curl, with no local checkout.
 DEPLOY_DIR="$APP_ROOT/repo/deploy"
-CADDY_SRC="$DEPLOY_DIR/Caddyfile"
-if [[ -f "$CADDY_SRC" ]]; then
-  # Rewrite whatever domain the site block declares to $DOMAIN, so this works
-  # regardless of which domain is committed in the repo.
-  awk -v d="$DOMAIN" '
-    # The site address is the first line at column 0 that ends in "{".
-    !done && /^[^[:space:]#].*\{[[:space:]]*$/ { print d " {"; done=1; next }
-    { print }
-  ' "$CADDY_SRC" > /etc/caddy/Caddyfile
+CADDY_SYNC="$DEPLOY_DIR/sync-caddy.sh"
 
-  grep -q "^${DOMAIN} {" /etc/caddy/Caddyfile \
-    || { echo "    ERROR: failed to set the domain in /etc/caddy/Caddyfile" >&2; exit 1; }
+# Staging area for the config, owned by the deploy user. This is what lets
+# deploy.sh synchronise Caddy through narrowly scoped sudo rules: every
+# privileged command takes a fixed path inside this directory, so no rule needs a
+# wildcard. 750 because the file describes the whole reverse-proxy topology.
+install -d -o "$APP_USER" -g "$APP_USER" -m 750 "$APP_ROOT/caddy"
 
-  install -d -o caddy -g caddy /var/log/caddy
-  caddy validate --config /etc/caddy/Caddyfile >/dev/null \
-    || { echo "    ERROR: Caddyfile failed validation" >&2; exit 1; }
-  systemctl reload caddy 2>/dev/null || systemctl restart caddy
+# Caddy's log directory must exist before validation: `caddy validate` provisions
+# the modules the config declares, and the file logger fails on a missing path.
+install -d -o caddy -g caddy /var/log/caddy
+
+if [[ -f "$CADDY_SYNC" ]]; then
+  # One implementation, shared with deploy.sh. This used to be an inline
+  # awk + validate + reload sequence here, which had two problems: it was a
+  # second copy of logic that also had to exist for deploys, and it redirected
+  # awk straight into /etc/caddy/Caddyfile and validated *afterwards* — so a
+  # broken config destroyed the working one, leaving a server that ran fine
+  # until its next reload and then would not come back.
+  #
+  # sync-caddy.sh renders to a staging file, validates that, and only installs
+  # once validation passes.
+  DOMAIN="$DOMAIN" APP_ROOT="$APP_ROOT" APP_USER="$APP_USER" \
+    bash "$CADDY_SYNC" apply \
+    || { echo "    ERROR: Caddy config sync failed" >&2; exit 1; }
   echo "    Caddyfile installed and validated for ${DOMAIN}"
 else
-  echo "    ERROR: ${CADDY_SRC} not found" >&2
+  echo "    ERROR: ${CADDY_SYNC} not found" >&2
   exit 1
 fi
 
@@ -227,13 +235,34 @@ else
   exit 1
 fi
 
-echo "==> Granting the deploy user permission to restart the service"
-# Resolve systemctl's real path instead of assuming /usr/bin: a wrong path in
-# sudoers silently fails to match and the deploy cannot restart the service.
+echo "==> Granting the deploy user its privileged commands"
+# Resolve real paths instead of assuming /usr/bin: a wrong path in sudoers
+# silently fails to match, and the deploy then cannot restart the service or
+# install the config.
 SYSTEMCTL="$(command -v systemctl)"
-# Narrowly scoped: this user may restart/inspect ONLY this one unit, nothing else.
+CADDY_BIN="$(command -v caddy)"
+INSTALL_BIN="$(command -v install)"
+STAGED_CONFIG="$APP_ROOT/caddy/Caddyfile.staged"
+ROLLBACK_CONFIG="$APP_ROOT/caddy/Caddyfile.rollback"
+
+# Narrowly scoped, every rule with fixed arguments and no wildcard:
+#
+#   systemctl restart|status|is-active shop-api   the application service
+#   caddy validate --config <staged>              fallback only; see below
+#   install <staged>   -> /etc/caddy/Caddyfile    apply a synchronised config
+#   install <rollback> -> /etc/caddy/Caddyfile    undo it when a deploy fails
+#   systemctl reload caddy                        make the installed config live
+#
+# The two `install` rules are what make this safe to grant: the source paths are
+# literal, so the right to write /etc/caddy/Caddyfile cannot be reused to write
+# anywhere else, and the mode and ownership are fixed by the rule itself.
+#
+# The `caddy validate` rule is a fallback. sync-caddy.sh validates unprivileged
+# first and only escalates if that fails, which happens when Caddy's log
+# directory is unreadable to this user. On a server where the unprivileged call
+# works the rule is never used and can be removed.
 cat > /etc/sudoers.d/shop-deploy <<EOF
-${APP_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL} restart shop-api, ${SYSTEMCTL} status shop-api, ${SYSTEMCTL} is-active shop-api
+${APP_USER} ALL=(root) NOPASSWD: ${SYSTEMCTL} restart shop-api, ${SYSTEMCTL} status shop-api, ${SYSTEMCTL} is-active shop-api, ${CADDY_BIN} validate --config ${STAGED_CONFIG}, ${INSTALL_BIN} -o root -g root -m 644 ${STAGED_CONFIG} /etc/caddy/Caddyfile, ${INSTALL_BIN} -o root -g root -m 644 ${ROLLBACK_CONFIG} /etc/caddy/Caddyfile, ${SYSTEMCTL} reload caddy
 EOF
 chmod 440 /etc/sudoers.d/shop-deploy
 # Reject a malformed sudoers file instead of locking sudo for everyone.

@@ -101,6 +101,7 @@ apps/miniapp/src/
   styles.css                 брендовый слой --zone-* и все правила интерфейса
 
 deploy/                      Caddyfile, systemd unit, setup-server.sh, deploy.sh,
+                             sync-caddy.sh (синхронизация конфига Caddy),
                              pack-artifact.mjs (сборка артефакта для сервера)
 .github/workflows/deploy.yml CI: install (собирает shared) → typecheck → test →
                              build → pack → scp → install
@@ -768,6 +769,7 @@ placement: чей баннер сверху, в какой рамке и под 
 | Сообщения и команды бота           | `routes/bot.ts`, `telegram/onboarding.ts`                               |
 | Переменные окружения               | `config.ts`, `apps/api/.env.example`, `deploy/setup-server.sh`           |
 | Деплой, Caddy, systemd             | `deploy/*`, `.github/workflows/deploy.yml`, `docs/DEPLOYMENT.md`         |
+| Конфиг реверс-прокси               | `deploy/Caddyfile` (источник истины) → `deploy/sync-caddy.sh` → `/etc/caddy/Caddyfile` |
 | Состав артефакта для сервера       | `deploy/pack-artifact.mjs`                                              |
 | Демо-данные                        | `apps/api/src/cli/seed.ts`, `apps/api/src/cli/seed-banners.ts`           |
 | Обслуживающие команды              | `apps/api/src/cli/*.ts` (компилируются в `dist/cli/*.js`)                |
@@ -797,6 +799,8 @@ placement: чей баннер сверху, в какой рамке и под 
 | Ключи только добавляются, никогда не удаляются | выданный ключ — это оплаченная покупка, она обязана остаться в аудите |
 | `node:test` вместо Jest              | ноль зависимостей и конфигурации, тесты запускаются как есть      |
 | Релизы + симлинк `current`           | сломанная сборка не трогает работающий сайт, откат мгновенный     |
+| Конфиг Caddy синхронизируется деплоем | правка в Git иначе не доезжает до сервера: `handle /uploads/*` пролежал закоммиченным и неустановленным пять деплоев, и картинки отдавались как `index.html` |
+| Caddyfile валидируется в staging      | валидация после записи в `/etc/caddy/Caddyfile` уничтожает рабочий конфиг битым; сервер живёт из памяти до первого reload и потом не поднимается |
 | Хранится 2 релиза, чистка до распаковки | релиз с `node_modules` — ~400 МБ; при 5 релизах диск 9.7 ГБ забивался и `tar` падал на ENOSPC ещё до шага, который освобождал место |
 | Сборка в CI, на сервер — артефакт    | VPS слабый: `tsc`+`vite` там грозят OOM. Runner бесплатный        |
 | `node_modules` едут в артефакте      | `npm ci` на VPS убивал OOM killer (~13.8k файлов). Взамен артефакт привязан к ОС/арх/ABI Node — `deploy.sh` проверяет это жёстко |
