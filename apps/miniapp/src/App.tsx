@@ -5,6 +5,7 @@ import { useViewer } from './api/useViewer.ts';
 import { useBackButton } from './telegram/buttons.ts';
 import { haptic, isTelegramEnvironment } from './telegram/webapp.ts';
 import { AppLayout, type TabName } from './components/AppLayout.tsx';
+import { HomeScreen } from './screens/HomeScreen.tsx';
 import { CatalogScreen } from './screens/CatalogScreen.tsx';
 import { AbuseScreen } from './screens/AbuseScreen.tsx';
 import { ProductScreen } from './screens/ProductScreen.tsx';
@@ -33,7 +34,8 @@ type View =
   | { name: 'product'; slug: string }
   | { name: 'cart' }
   | { name: 'orders' }
-  | { name: 'profile' };
+  | { name: 'profile' }
+  | { name: 'home' };
 
 /**
  * Which tab stays highlighted for a given screen.
@@ -45,6 +47,8 @@ type View =
  */
 function tabForView(view: View, fallback: TabName): TabName {
   switch (view.name) {
+    case 'home':
+      return 'catalog';
     case 'catalog':
       return 'catalog';
     case 'abuse':
@@ -64,6 +68,7 @@ function tabForView(view: View, fallback: TabName): TabName {
 
 /** Screens that keep the profile header visible. */
 const HEADER_VIEWS = new Set<View['name']>([
+  'home',
   'catalog',
   'abuse',
   'cart',
@@ -71,8 +76,8 @@ const HEADER_VIEWS = new Set<View['name']>([
 ]);
 
 export function App() {
-  const [stack, setStack] = useState<View[]>([{ name: 'catalog' }]);
-  const current = stack[stack.length - 1] ?? { name: 'catalog' };
+  const [stack, setStack] = useState<View[]>([{ name: 'home' }]);
+  const current = stack[stack.length - 1] ?? { name: 'home' };
   const itemCount = useCart(selectItemCount);
   const { viewer, isPending, isSubscribedChannel } = useViewer();
 
@@ -105,9 +110,9 @@ export function App() {
     () =>
       tabForView(
         current,
-        // The tab under the profile: the entry below it in the stack, or the
-        // catalog when the profile is the only screen left.
-        tabForView(stack[stack.length - 2] ?? { name: 'catalog' }, 'catalog'),
+        // The tab under the profile: the entry below it in the stack, or home
+        // when the profile is the only screen left.
+        tabForView(stack[stack.length - 2] ?? { name: 'home' }, 'catalog'),
       ),
     [current, stack],
   );
@@ -137,7 +142,7 @@ export function App() {
         // Back to the first tab: staying on "Финансы" while switching to the
         // shopper view would land on Orders, which is a different screen than
         // the one that was on display.
-        resetTo({ name: 'catalog' });
+        resetTo({ name: 'home' });
       }}
       onOpenProfile={() => {
         haptic('tap');
@@ -148,7 +153,7 @@ export function App() {
         // Tapping the tab you are already on scrolls to the top, the way native
         // tab bars behave. Without it a restored offset would be a trap: there
         // would be no way back to the top but dragging.
-        if (current.name === tab) {
+        if (current.name === tab || (tab === 'catalog' && current.name === 'home')) {
           // The scroll listener in `useScrollRestoration` records 0 right after
           // this, so the screen also stops trying to restore the old offset.
           window.scrollTo(0, 0);
@@ -156,7 +161,12 @@ export function App() {
         }
         // Selecting a tab always resets the stack, so it doubles as the exit
         // from the profile and from a product page.
-        resetTo({ name: tab });
+        // Catalog tab now opens Home instead.
+        if (tab === 'catalog') {
+          resetTo({ name: 'home' });
+        } else {
+          resetTo({ name: tab });
+        }
       }}
       banner={!isTelegramEnvironment() ? <DevBanner /> : null}
     >
@@ -176,6 +186,20 @@ export function App() {
         </>
       ) : (
         <>
+      {current.name === 'home' ? (
+        <HomeScreen
+          isSubscribedChannel={isSubscribedChannel}
+          onOpenProduct={(slug) => push({ name: 'product', slug })}
+          onOpenCategory={(slug) => {
+            // Category picker navigates to Catalog with filter applied
+            resetTo({ name: 'catalog' });
+            // Note: CatalogScreen needs to accept an initial category filter
+            // For now this just opens the catalog; the filter can be applied
+            // through CatalogBrowser's existing category state if needed.
+          }}
+        />
+      ) : null}
+
       {current.name === 'catalog' ? (
         <CatalogScreen
           isSubscribedChannel={isSubscribedChannel}
@@ -201,13 +225,13 @@ export function App() {
       {current.name === 'cart' ? (
         <CartScreen
           isSubscribedChannel={isSubscribedChannel}
-          onContinueShopping={() => resetTo({ name: 'catalog' })}
+          onContinueShopping={() => resetTo({ name: 'home' })}
           onOpenOrders={() => resetTo({ name: 'orders' })}
         />
       ) : null}
 
       {current.name === 'orders' ? (
-        <OrdersScreen onContinueShopping={() => resetTo({ name: 'catalog' })} />
+        <OrdersScreen onContinueShopping={() => resetTo({ name: 'home' })} />
       ) : null}
 
       {current.name === 'profile' ? (
