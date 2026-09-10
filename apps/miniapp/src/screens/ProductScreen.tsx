@@ -16,6 +16,7 @@ import {
   Spinner,
   ErrorState,
 } from '../components/ui.tsx';
+import { IconMediaPlaceholder } from '../components/icons/index.tsx';
 
 const FULFILLMENT_LABEL: Record<string, string> = {
   LICENSE_KEY: 'Ключ активации придёт в чат сразу после оплаты',
@@ -165,7 +166,7 @@ export function ProductScreen({
         />
       ) : (
         <div
-          className="card"
+          className={`card${product.emoji ? '' : ' product-media-fallback'}`}
           style={{
             display: 'grid',
             placeItems: 'center',
@@ -174,7 +175,9 @@ export function ProductScreen({
             marginBottom: 16,
           }}
         >
-          {product.emoji || '🎁'}
+          {/* Same three-step priority as the grid, so the card and the page it
+              opens never disagree about what a product looks like. */}
+          {product.emoji || <IconMediaPlaceholder width={72} height={72} />}
         </div>
       )}
 

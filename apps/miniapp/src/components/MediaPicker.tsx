@@ -125,7 +125,7 @@ export function MediaPicker({
       {error ? (
         <p
           className="hint"
-          style={{ margin: 0, color: 'var(--tg-destructive-text-color)' }}
+          style={{ margin: 0, color: 'var(--zone-error)' }}
         >
           {error}
         </p>

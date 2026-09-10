@@ -10,7 +10,35 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>Магазин</title>
+    <!--
+      The brand background, declared before the stylesheet is fetched. The app is
+      permanently dark, so without this the WebView paints its default white for
+      one frame on a cold start — the single most visible way a Mini App gives
+      away that it is a web page.
+
+      `color-scheme: dark` here (not only via the WebApp API) is what makes the
+      browser render native controls, form autofill and scrollbars dark from the
+      very first paint.
+    -->
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#08070C" />
+    <style>
+      html {
+        background: #08070c;
+        color-scheme: dark;
+      }
+    </style>
+    <!--
+      App icons go here once the final OCHKISK mark exists:
+
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+      with the files themselves in `public/` (Vite copies that folder to the root
+      of `dist`, so the URL stays fixed). Left unreferenced rather than pointed at
+      placeholders: a `<link>` to a missing file is a 404 on every cold start.
+    -->
+    <title>OCHKISK ZONE</title>
     <!--
       The Telegram WebApp script must load before the app so `window.Telegram`
       exists on first render. It is intentionally NOT bundled: Telegram serves

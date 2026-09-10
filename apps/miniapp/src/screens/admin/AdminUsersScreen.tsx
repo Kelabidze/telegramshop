@@ -206,7 +206,7 @@ function UserDetails({
       {error ? (
         <p
           className="hint"
-          style={{ color: 'var(--tg-destructive-text-color)', margin: 0 }}
+          style={{ color: 'var(--zone-error)', margin: 0 }}
         >
           {error}
         </p>

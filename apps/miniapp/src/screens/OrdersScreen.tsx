@@ -105,7 +105,7 @@ export function OrdersScreen({
             </div>
 
             {order.status === 'FAILED' ? (
-              <p className="hint" style={{ color: 'var(--tg-destructive-text-color)' }}>
+              <p className="hint" style={{ color: 'var(--zone-error)' }}>
                 Оплата прошла, но выдать товар автоматически не удалось.
                 Мы уже разбираемся.
               </p>

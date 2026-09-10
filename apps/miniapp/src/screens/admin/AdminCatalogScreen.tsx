@@ -312,7 +312,7 @@ function CategoryForm({
       <Field label="Эмодзи">
         <input className="input" value={emoji} onChange={(e) => setEmoji(e.target.value)} />
       </Field>
-      {error ? <p className="hint" style={{ color: 'var(--tg-destructive-text-color)', margin: 0 }}>{error}</p> : null}
+      {error ? <p className="hint" style={{ color: 'var(--zone-error)', margin: 0 }}>{error}</p> : null}
       <div className="row">
         <button type="button" className="button" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
           Сохранить

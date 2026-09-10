@@ -5,6 +5,7 @@ import {
   type ProductListItem,
 } from '@shop/shared';
 import { Price } from './ui.tsx';
+import { IconMediaPlaceholder } from './icons/index.tsx';
 import { haptic } from '../telegram/webapp.ts';
 
 /**
@@ -58,8 +59,10 @@ function ProductCard({
     <button type="button" className="product-card" onClick={onClick}>
       {/*
         Image wins over emoji when both are set, and the emoji covers the case
-        where nobody uploaded artwork. `🎁` remains the last resort so a card is
-        never a blank square.
+        where nobody uploaded artwork. The priority is unchanged; only the last
+        resort is: `🎁` promised a gift on every unillustrated product, and a
+        platform emoji at 32px was also the least brand-like pixel in the grid.
+        A quiet framed media mark says "no picture" instead.
       */}
       {product.imageUrl ? (
         <img
@@ -68,8 +71,12 @@ function ProductCard({
           alt={product.title}
           loading="lazy"
         />
+      ) : product.emoji ? (
+        <div className="product-card__media">{product.emoji}</div>
       ) : (
-        <div className="product-card__media">{product.emoji || '🎁'}</div>
+        <div className="product-card__media product-media-fallback">
+          <IconMediaPlaceholder />
+        </div>
       )}
       <div className="product-card__body">
         <div className="product-card__title">{product.title}</div>

@@ -227,13 +227,31 @@ export function CategorySkeletonGrid({ count = 6 }: { count?: number }) {
   );
 }
 
+/**
+ * Empty and error states.
+ *
+ * Takes either an `emoji` or an `art` node, and renders whichever is given
+ * inside the same framed tile (`.empty-art`) — a graphite square with a hairline
+ * and a breath of violet, which is what makes a bare glyph look deliberate
+ * against a near-black page instead of abandoned.
+ *
+ * Both props exist because the OCHKISK illustrations are not drawn yet. The
+ * frame is the mount point: when an asset lands, that call site passes
+ * `art={<img className="empty-art__image" src={...} alt="" />}` and nothing else
+ * changes. Until then the emoji stays — deliberately, rather than being replaced
+ * by invented placeholder graphics, which would have to be undone twice.
+ */
 export function EmptyState({
   emoji,
+  art,
   title,
   description,
   action,
 }: {
-  emoji: string;
+  /** Glyph fallback, used while the brand illustration for this state is absent. */
+  emoji?: string;
+  /** Brand illustration. Wins over `emoji` when both are somehow provided. */
+  art?: React.ReactNode;
   title: string;
   description?: string;
   action?: React.ReactNode;
@@ -241,7 +259,9 @@ export function EmptyState({
   return (
     <div className="center">
       <div className="stack" style={{ alignItems: 'center', maxWidth: 320 }}>
-        <div style={{ fontSize: 48 }}>{emoji}</div>
+        <div className="empty-art" aria-hidden="true">
+          {art ?? emoji}
+        </div>
         <h2 className="title">{title}</h2>
         {description ? <p className="subtitle">{description}</p> : null}
         {action}

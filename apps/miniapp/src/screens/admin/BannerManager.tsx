@@ -180,7 +180,7 @@ export function BannerManager({
           {toggle.isError ? (
             <p
               className="hint"
-              style={{ color: 'var(--tg-destructive-text-color)', marginTop: 8 }}
+              style={{ color: 'var(--zone-error)', marginTop: 8 }}
             >
               Не удалось переключить показ. Попробуйте ещё раз.
             </p>
@@ -343,7 +343,7 @@ function BannerForm({
         Показывать в магазине
       </label>
       {error ? (
-        <p className="hint" style={{ color: 'var(--tg-destructive-text-color)', margin: 0 }}>
+        <p className="hint" style={{ color: 'var(--zone-error)', margin: 0 }}>
           {error}
         </p>
       ) : null}

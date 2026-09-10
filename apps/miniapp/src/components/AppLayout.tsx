@@ -1,6 +1,18 @@
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { Viewer } from '@shop/shared';
 import { CLUB_TIER_PERCENT, viewerDisplayName } from '@shop/shared';
+import {
+  IconCart,
+  IconCatalog,
+  IconFinance,
+  IconLayers,
+  IconModeShop,
+  IconModeStaff,
+  IconOrders,
+  IconTarget,
+  IconUsers,
+  type IconProps,
+} from './icons/index.tsx';
 
 /**
  * Root frame: a persistent profile header on top, the tab bar at the bottom,
@@ -33,18 +45,32 @@ export type TabName = 'catalog' | 'abuse' | 'cart' | 'orders';
  * staff bar keeps a short label — its three neighbours are one word each, and
  * only one of the four sprouting a second line looks like a rendering fault.
  */
-const SHOPPER_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
-  { name: 'catalog', label: 'Каталог', icon: '🛍' },
-  { name: 'abuse', label: 'Всё для абуза', icon: '🎯' },
-  { name: 'cart', label: 'Корзина', icon: '🛒' },
-  { name: 'orders', label: 'Заказы', icon: '📦' },
+/**
+ * Icons are components, not emoji.
+ *
+ * Emoji are rendered by the platform, so the same tab bar looked different on
+ * iOS, Android and desktop, none of them matched the brand, and the active tab
+ * could only be marked by colouring the text underneath. A stroked glyph
+ * inherits `currentColor`, so active/inactive is one CSS rule and one asset.
+ */
+interface TabDefinition {
+  name: TabName;
+  label: string;
+  Icon: ComponentType<IconProps>;
+}
+
+const SHOPPER_TABS: ReadonlyArray<TabDefinition> = [
+  { name: 'catalog', label: 'Каталог', Icon: IconCatalog },
+  { name: 'abuse', label: 'Всё для абуза', Icon: IconTarget },
+  { name: 'cart', label: 'Корзина', Icon: IconCart },
+  { name: 'orders', label: 'Заказы', Icon: IconOrders },
 ];
 
-const STAFF_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
-  { name: 'catalog', label: 'Каталог', icon: '🗂' },
-  { name: 'abuse', label: 'Абуз', icon: '🎯' },
-  { name: 'cart', label: 'Люди', icon: '👥' },
-  { name: 'orders', label: 'Финансы', icon: '💰' },
+const STAFF_TABS: ReadonlyArray<TabDefinition> = [
+  { name: 'catalog', label: 'Каталог', Icon: IconLayers },
+  { name: 'abuse', label: 'Абуз', Icon: IconTarget },
+  { name: 'cart', label: 'Люди', Icon: IconUsers },
+  { name: 'orders', label: 'Финансы', Icon: IconFinance },
 ];
 
 export function AppLayout({
@@ -89,8 +115,8 @@ export function AppLayout({
           onClick={onToggleStaffMode}
           aria-pressed={isStaffMode}
         >
-          <span className="staff-switch__icon" aria-hidden="true">
-            {isStaffMode ? '🛠' : '🛍'}
+          <span className="staff-switch__icon">
+            {isStaffMode ? <IconModeStaff /> : <IconModeShop />}
           </span>
           <span className="staff-switch__text">
             {isStaffMode ? 'Режим управления' : 'Режим покупателя'}
@@ -188,7 +214,7 @@ function TabBar({
   itemCount,
   onSelect,
 }: {
-  tabs: ReadonlyArray<{ name: TabName; label: string; icon: string }>;
+  tabs: ReadonlyArray<TabDefinition>;
   active: TabName;
   itemCount: number;
   onSelect: (tab: TabName) => void;
@@ -204,7 +230,7 @@ function TabBar({
           onClick={() => onSelect(tab.name)}
         >
           <span className="tab-bar__icon">
-            {tab.icon}
+            <tab.Icon />
             {tab.name === 'cart' && itemCount > 0 ? (
               <span className="tab-bar__badge">{itemCount}</span>
             ) : null}

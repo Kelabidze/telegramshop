@@ -110,7 +110,7 @@ export function AdminFinanceScreen() {
           {failed > 0 ? (
             <p
               className="hint"
-              style={{ margin: 0, color: 'var(--tg-destructive-text-color)' }}
+              style={{ margin: 0, color: 'var(--zone-error)' }}
             >
               Заказов со статусом FAILED: {failed}. Оплата прошла, товар не
               выдан — требуется ручной разбор.

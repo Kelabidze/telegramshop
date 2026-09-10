@@ -166,6 +166,18 @@ export function ProfileScreen({
         Имя в магазине меняется по карандашу рядом с ним — в Telegram оно
         останется прежним.
       </p>
+
+      {/*
+        The single place the brand signs itself. Rendered as text until
+        `src/assets/logo/wordmark.svg` exists, at which point this becomes an
+        <img> with the same wrapper — `.brand-signature` is already styled for
+        both. Deliberately at the foot of the profile and nowhere else: the
+        catalogue and cart belong to the products, and Telegram already shows the
+        bot's name in native chrome above the header.
+      */}
+      <div className="brand-signature" aria-hidden="true">
+        <span className="brand-signature__wordmark">OCHKISK ZONE</span>
+      </div>
     </div>
   );
 }
@@ -257,7 +269,7 @@ function RenamePanel({
         }}
       />
       {error ? (
-        <p className="hint" style={{ margin: 0, color: 'var(--tg-destructive-text-color)' }}>
+        <p className="hint" style={{ margin: 0, color: 'var(--zone-error)' }}>
           {error}
         </p>
       ) : null}

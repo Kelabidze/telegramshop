@@ -449,7 +449,7 @@ export function ProductForm({
         В продаже
       </label>
       {error ? (
-        <p className="hint" style={{ color: 'var(--tg-destructive-text-color)', margin: 0 }}>
+        <p className="hint" style={{ color: 'var(--zone-error)', margin: 0 }}>
           {error}
         </p>
       ) : null}
@@ -577,7 +577,7 @@ export function CountryForm({
         активный вариант товара: пустой фильтр выглядит как сломанный экран.
       </p>
       {error ? (
-        <p className="hint" style={{ color: 'var(--tg-destructive-text-color)', margin: 0 }}>
+        <p className="hint" style={{ color: 'var(--zone-error)', margin: 0 }}>
           {error}
         </p>
       ) : null}

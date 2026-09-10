@@ -1,9 +1,23 @@
 /*
- * All colours come from Telegram theme variables (set in telegram/theme.ts),
- * so the UI matches whatever theme the user has in their client.
+ * OCHKISK ZONE — brand visual layer.
+ *
+ * Two colour systems live here on purpose.
+ *
+ * `--tg-*` is the Telegram theme bridge, written by telegram/theme.ts on every
+ * `themeChanged`. It is kept intact: it is what a plain browser sees before the
+ * WebApp object exists, and what any element that should follow the client can
+ * still read.
+ *
+ * `--zone-*` is the brand layer, and it is what the UI actually paints with. A
+ * fixed dark palette rather than the client theme, because a shop with its own
+ * identity must not change colour because someone installed a green theme.
+ * Deliberately a separate namespace instead of redefining `--tg-*`: theme.ts
+ * rewrites those on the next theme event, so an override there would silently
+ * revert.
  */
 
 :root {
+  /* ---- Telegram theme bridge (written by theme.ts; do not repurpose) ---- */
   --tg-bg-color: #ffffff;
   --tg-text-color: #000000;
   --tg-hint-color: #707579;
@@ -14,14 +28,81 @@
   --tg-section-bg-color: #ffffff;
   --tg-destructive-text-color: #df3f40;
 
+  /* ---- OCHKISK ZONE palette ---- */
+  --zone-bg: #08070c;
+  --zone-surface: #111017;
+  --zone-surface-2: #15131c;
+  --zone-surface-3: #1b1823;
+  --zone-text: #f5f1f7;
+  --zone-text-secondary: #9a94a3;
+  --zone-text-muted: #6e6877;
+  --zone-border: rgba(255, 255, 255, 0.1);
+  --zone-magenta: #e83dff;
+  --zone-violet: #9b5cff;
+  --zone-magenta-glow: rgba(232, 61, 255, 0.18);
+  --zone-violet-glow: rgba(155, 92, 255, 0.12);
+  --zone-success: #35d07f;
+  --zone-error: #ff4d67;
+  --zone-warning: #ffb84d;
+
+  /*
+   * Derived values. No new hues: alpha variants of the palette above, needed
+   * because a single border colour cannot express hover/selected, and a status
+   * pill needs a fill as well as a text colour. Written out rather than built
+   * with `color-mix()`, which is too recent for the oldest WebViews Telegram
+   * still runs on.
+   */
+  --zone-border-strong: rgba(255, 255, 255, 0.18);
+  --zone-success-tint: rgba(53, 208, 127, 0.14);
+  --zone-error-tint: rgba(255, 77, 103, 0.14);
+  --zone-warning-tint: rgba(255, 184, 77, 0.14);
+
+  /*
+   * Text on a magenta fill is dark, not white: #E83DFF against white is 3.2:1,
+   * below AA, while against the page black it is 6.1:1. That decision belongs
+   * in a variable because it applies to every magenta surface — the primary
+   * button, the native MainButton, selected chips.
+   */
+  --zone-on-magenta: #08070c;
+
+  /* ---- typography ---- */
+  --zone-font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif;
+  /*
+   * Display face for headings, prices and the header name.
+   *
+   * Points at the body stack until a self-hosted WOFF2 is picked. An
+   * `@font-face` naming a file that is not in the bundle is a 404 on every cold
+   * start, and the rendered result would be this same stack anyway. Wiring one
+   * up is two edits: add the `@font-face` block (subset with Cyrillic,
+   * `font-display: swap`, file under `src/assets/fonts/`) and change this line.
+   * The body stack stays system on purpose — zero bytes and the best rendering
+   * on both iOS and Android.
+   */
+  --zone-font-display: var(--zone-font-body);
+
+  /* ---- geometry and motion ---- */
   --radius: 12px;
   --gap: 12px;
   --page-padding: 16px;
+  /* One timing for every state change, so nothing feels out of step. */
+  --zone-transition: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
-    Arial, sans-serif;
+  /*
+   * Mount points for brand decoration. `none` until the artwork exists:
+   * `background-image` pointing at a missing file costs a 404 per element, and
+   * these are decorative, so absence has to be the safe default. Each becomes
+   * one `url()` when the asset lands.
+   */
+  --zone-decor-tentacle: none;
+  --zone-decor-suction: none;
+  --zone-decor-noise: none;
+
+  font-family: var(--zone-font-body);
   font-size: 16px;
   line-height: 1.4;
+  /* Native controls (checkboxes, selects, scrollbars) follow the brand. */
+  accent-color: var(--zone-magenta);
 }
 
 * {
@@ -37,11 +118,30 @@ body,
   min-height: 100%;
 }
 
+/*
+ * On `html` as well as `body`: the WebView paints the root element's background
+ * over the whole canvas, including the area revealed by overscroll and the
+ * moment before the stylesheet applies. Without it a dark app flashes white on
+ * a cold start.
+ */
+html {
+  background: var(--zone-bg);
+}
+
 body {
-  background: var(--tg-secondary-bg-color);
-  color: var(--tg-text-color);
+  background: var(--zone-bg);
+  color: var(--zone-text);
   /* Avoid the iOS rubber-band effect revealing white space behind the app. */
   overscroll-behavior-y: none;
+}
+
+/*
+ * Keyboard focus ring. Zero-specificity `:where()` so any component that styles
+ * its own focus (`.input`) still wins.
+ */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--zone-magenta);
+  outline-offset: 2px;
 }
 
 .page {
@@ -58,27 +158,36 @@ body {
 /* ---------- typography ---------- */
 
 .title {
+  font-family: var(--zone-font-display);
   font-size: 20px;
   font-weight: 600;
+  /* Slightly tighter than the body: display type set at body tracking reads
+     loose, and this is where the brand voice lives. */
+  letter-spacing: -0.01em;
   margin: 0 0 4px;
 }
 
 .subtitle {
-  color: var(--tg-hint-color);
+  color: var(--zone-text-secondary);
   font-size: 14px;
   margin: 0;
 }
 
 .hint {
-  color: var(--tg-hint-color);
+  /*
+   * Secondary, not muted. `--zone-text-muted` is 3.6:1 on the page background —
+   * fine for a disabled control or an inactive icon, too low for 13px prose.
+   */
+  color: var(--zone-text-secondary);
   font-size: 13px;
 }
 
 .section-title {
+  font-family: var(--zone-font-display);
   font-size: 13px;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--tg-hint-color);
+  letter-spacing: 0.08em;
+  color: var(--zone-text-secondary);
   margin: 20px 0 8px;
 }
 
@@ -100,8 +209,16 @@ body {
   flex: 1;
 }
 
+/*
+ * Every surface in the app is this shape: a graphite fill and one hairline
+ * border. The border is what separates panels on a near-black background —
+ * without it the two-step difference between #08070C and #15131C disappears on
+ * a phone in daylight. Deliberately no blur and no translucency: this is dark
+ * premium, not glassmorphism.
+ */
 .card {
-  background: var(--tg-section-bg-color);
+  background: var(--zone-surface-2);
+  border: 1px solid var(--zone-border);
   border-radius: var(--radius);
   padding: var(--gap);
 }
@@ -124,16 +241,21 @@ body {
   flex: 0 0 auto;
   padding: 8px 14px;
   border-radius: 999px;
-  border: none;
-  background: var(--tg-section-bg-color);
-  color: var(--tg-text-color);
+  border: 1px solid var(--zone-border);
+  background: var(--zone-surface-2);
+  color: var(--zone-text);
   font-size: 14px;
   cursor: pointer;
+  transition:
+    background-color var(--zone-transition),
+    border-color var(--zone-transition),
+    color var(--zone-transition);
 }
 
 .chip[aria-pressed='true'] {
-  background: var(--tg-button-color);
-  color: var(--tg-button-text-color);
+  background: var(--zone-magenta);
+  border-color: var(--zone-magenta);
+  color: var(--zone-on-magenta);
 }
 
 /* ---------- root frame ---------- */
@@ -155,12 +277,24 @@ body {
   min-height: 0;
 }
 
+/*
+ * Staff mode marker.
+ *
+ * The switch at the top already names the mode, but it scrolls out of view. The
+ * tab bar is sticky, so tinting its top edge answers "which mode am I in" from
+ * any screen and any scroll position without spending layout on it.
+ */
+.app-shell--staff .tab-bar {
+  border-top-color: var(--zone-warning);
+}
+
 .dev-banner {
-  background: var(--tg-secondary-bg-color);
+  background: var(--zone-surface);
+  border-bottom: 1px solid var(--zone-border);
   padding: 8px 16px;
   font-size: 13px;
   text-align: center;
-  color: var(--tg-hint-color);
+  color: var(--zone-text-secondary);
 }
 
 /* ---------- staff mode switch ---------- */
@@ -174,8 +308,8 @@ body {
   margin: 0 auto;
   padding: 8px var(--page-padding);
   border: none;
-  border-bottom: 1px solid var(--tg-secondary-bg-color);
-  background: var(--tg-bg-color);
+  border-bottom: 1px solid var(--zone-border);
+  background: var(--zone-bg);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -186,14 +320,20 @@ body {
 /* Unmistakably a different mode: an admin editing prices must never think they
    are looking at the shop. */
 .staff-switch[aria-pressed='true'] {
-  background: rgba(255, 149, 0, 0.14);
-  border-bottom-color: rgba(255, 149, 0, 0.35);
+  background: var(--zone-warning-tint);
+  border-bottom-color: var(--zone-warning);
 }
 
 .staff-switch__icon {
   flex: 0 0 auto;
-  font-size: 15px;
+  display: grid;
+  place-items: center;
+  color: var(--zone-text-secondary);
   line-height: 1;
+}
+
+.staff-switch[aria-pressed='true'] .staff-switch__icon {
+  color: var(--zone-warning);
 }
 
 .staff-switch__text {
@@ -207,7 +347,7 @@ body {
 
 .staff-switch__action {
   flex: 0 0 auto;
-  color: var(--tg-link-color);
+  color: var(--zone-magenta);
   font-weight: 500;
 }
 
@@ -230,7 +370,13 @@ select.input {
   width: 100%;
   padding: 12px var(--page-padding);
   border: none;
-  background: var(--tg-bg-color);
+  /*
+   * Same colour as the page, not a lifted strip: theme.ts paints Telegram's
+   * native header with `--zone-bg` too, so the seam between the client chrome
+   * and the document disappears. The hairline below is what separates it from
+   * the content.
+   */
+  background: var(--zone-bg);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -242,12 +388,16 @@ select.input {
 }
 
 .app-header:active {
-  background: var(--tg-secondary-bg-color);
+  background: var(--zone-surface);
 }
 
 /*
  * Initial instead of a photo: `initDataUnsafe.photo_url` is not available on
  * every client and platform, and a broken image is worse than a letter.
+ *
+ * A graphite disc with a magenta letter rather than a solid magenta fill: at
+ * 44px in a persistent header, a saturated block would make the accent the
+ * loudest thing on every screen, which is the opposite of how it is budgeted.
  */
 .app-header__avatar {
   flex: 0 0 auto;
@@ -256,8 +406,10 @@ select.input {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--tg-button-color);
-  color: var(--tg-button-text-color);
+  background: var(--zone-surface-3);
+  box-shadow: inset 0 0 0 1px var(--zone-border);
+  color: var(--zone-magenta);
+  font-family: var(--zone-font-display);
   font-size: 19px;
   font-weight: 600;
   text-transform: uppercase;
@@ -279,6 +431,7 @@ select.input {
 }
 
 .app-header__name {
+  font-family: var(--zone-font-display);
   font-size: 17px;
   font-weight: 600;
   /* A long Telegram first name must not push the chevron off screen. */
@@ -288,7 +441,7 @@ select.input {
 }
 
 .app-header__caption {
-  color: var(--tg-hint-color);
+  color: var(--zone-text-secondary);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -297,7 +450,7 @@ select.input {
 
 .app-header__chevron {
   flex: 0 0 auto;
-  color: var(--tg-hint-color);
+  color: var(--zone-text-muted);
   font-size: 22px;
   line-height: 1;
 }
@@ -308,8 +461,10 @@ select.input {
   position: sticky;
   bottom: 0;
   display: flex;
-  background: var(--tg-bg-color);
-  border-top: 1px solid var(--tg-secondary-bg-color);
+  /* One step above the page so the bar reads as chrome rather than as more
+     content, without needing a shadow. */
+  background: var(--zone-surface);
+  border-top: 1px solid var(--zone-border);
   /* Respect the iOS home-indicator area. */
   padding-bottom: env(safe-area-inset-bottom);
   z-index: 10;
@@ -322,7 +477,7 @@ select.input {
   background: transparent;
   padding: 10px 2px;
   cursor: pointer;
-  color: var(--tg-hint-color);
+  color: var(--zone-text-secondary);
   font: inherit;
   /* Four tabs on a narrow phone: 10px fits «Всё для абуза» in a quarter of a
      320px screen. */
@@ -330,7 +485,7 @@ select.input {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   overflow: hidden;
   /*
    * Wraps instead of truncating. A clipped label ("Всё для аб…") is a worse
@@ -341,6 +496,7 @@ select.input {
   text-align: center;
   line-height: 1.2;
   text-wrap: balance;
+  transition: color var(--zone-transition);
 }
 
 /* ---------- country carousel ---------- */
@@ -349,12 +505,6 @@ select.input {
  * Horizontal scroller, unlike the category grid: countries are a long flat list
  * with no natural grouping, and a wrapping grid of twenty flags would push the
  * products off the screen entirely.
- *
- * `.country-row` currently has no consumer: «Всё для абуза» shows the ordinary
- * catalog, so the carousel is not rendered. Kept deliberately, together with the
- * data model and the staff tab behind it — the listing is switched off, not
- * dropped. `.country-chip__flag` is still in use by the variation selector and
- * the staff rows.
  */
 .country-row {
   display: flex;
@@ -375,19 +525,24 @@ select.input {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border: none;
+  border: 1px solid var(--zone-border);
   border-radius: 999px;
-  background: var(--tg-section-bg-color);
-  color: var(--tg-text-color);
+  background: var(--zone-surface-2);
+  color: var(--zone-text);
   font: inherit;
   font-size: 13px;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--zone-transition),
+    border-color var(--zone-transition),
+    color var(--zone-transition);
 }
 
 .country-chip[aria-pressed='true'] {
-  background: var(--tg-button-color);
-  color: var(--tg-button-text-color);
+  background: var(--zone-magenta);
+  border-color: var(--zone-magenta);
+  color: var(--zone-on-magenta);
 }
 
 .country-chip__flag {
@@ -409,18 +564,28 @@ select.input {
   gap: 10px;
   width: 100%;
   padding: 12px;
-  border: 1px solid var(--tg-secondary-bg-color);
+  border: 1px solid var(--zone-border);
   border-radius: var(--radius);
-  background: var(--tg-section-bg-color);
+  background: var(--zone-surface-2);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition:
+    border-color var(--zone-transition),
+    box-shadow var(--zone-transition);
 }
 
+/*
+ * Selected: a magenta ring plus the faintest wash of brand glow. This is one of
+ * the few places glow is allowed — it marks a single choice the user just made,
+ * which is exactly the local, momentary use the accent is budgeted for.
+ */
 .variation-option[aria-pressed='true'] {
-  border-color: var(--tg-button-color);
-  box-shadow: inset 0 0 0 1px var(--tg-button-color);
+  border-color: var(--zone-magenta);
+  box-shadow:
+    inset 0 0 0 1px var(--zone-magenta),
+    0 0 0 3px var(--zone-magenta-glow);
 }
 
 .variation-option:disabled {
@@ -438,22 +603,36 @@ select.input {
 }
 
 .tab-bar__item[aria-current='page'] {
-  color: var(--tg-link-color);
+  color: var(--zone-magenta);
 }
 
+/*
+ * The icon carries the active state, the label carries legibility. Muted grey
+ * is 3.6:1 — acceptable for a 20px glyph, not for a 10px caption, which is why
+ * the two are coloured separately rather than inheriting one value.
+ */
 .tab-bar__icon {
-  font-size: 20px;
+  display: grid;
+  place-items: center;
+  color: var(--zone-text-muted);
   position: relative;
+  transition: color var(--zone-transition);
+}
+
+.tab-bar__item[aria-current='page'] .tab-bar__icon {
+  color: var(--zone-magenta);
 }
 
 .tab-bar__badge {
   position: absolute;
-  top: -4px;
+  top: -5px;
   right: -10px;
-  background: var(--tg-destructive-text-color);
-  color: #fff;
+  background: var(--zone-error);
+  /* Dark on red: white on #FF4D67 is 3.2:1, and this is 10px type. */
+  color: var(--zone-on-magenta);
   border-radius: 999px;
   font-size: 10px;
+  font-weight: 600;
   min-width: 16px;
   height: 16px;
   line-height: 16px;
@@ -469,20 +648,20 @@ select.input {
   width: 100%;
   margin-top: 16px;
   padding: 12px var(--gap);
-  border: none;
+  border: 1px solid var(--zone-border);
   border-radius: var(--radius);
-  background: var(--tg-section-bg-color);
-  color: var(--tg-text-color);
+  background: var(--zone-surface-2);
+  color: var(--zone-text);
   font: inherit;
   font-size: 14px;
   text-align: left;
   cursor: pointer;
   /* An accent stripe marks it as an offer without shouting like a sale badge. */
-  box-shadow: inset 3px 0 0 var(--tg-button-color);
+  box-shadow: inset 3px 0 0 var(--zone-magenta);
 }
 
 .club-notice--active {
-  box-shadow: inset 3px 0 0 #34c759;
+  box-shadow: inset 3px 0 0 var(--zone-success);
 }
 
 .club-notice__text {
@@ -502,17 +681,17 @@ select.input {
   font-weight: 500;
   padding: 4px 10px;
   border-radius: 999px;
-  background: var(--tg-secondary-bg-color);
-  color: var(--tg-hint-color);
+  background: var(--zone-surface-3);
+  color: var(--zone-text-secondary);
 }
 
 .club-badge--active {
-  background: rgba(52, 199, 89, 0.15);
-  color: #34c759;
+  background: var(--zone-success-tint);
+  color: var(--zone-success);
 }
 
 .club-link {
-  color: var(--tg-link-color);
+  color: var(--zone-magenta);
   font-size: 14px;
   text-decoration: none;
   /* A long invite link must not stretch the card. */
@@ -540,7 +719,7 @@ select.input {
   height: 54px;
   object-fit: cover;
   border-radius: 8px;
-  background: var(--tg-secondary-bg-color);
+  background: var(--zone-surface-3);
 }
 
 /* Name and its edit affordance on one line, centred as a pair. */
@@ -569,43 +748,61 @@ select.input {
   width: 32px;
   height: 32px;
   padding: 0;
-  border: none;
+  border: 1px solid var(--zone-border);
   border-radius: 50%;
-  background: var(--tg-secondary-bg-color);
-  color: var(--tg-link-color);
+  background: var(--zone-surface-3);
+  color: var(--zone-magenta);
   cursor: pointer;
+  transition:
+    background-color var(--zone-transition),
+    border-color var(--zone-transition);
 }
 
 .icon-button:active {
-  background: var(--tg-section-bg-color);
+  background: var(--zone-surface-2);
+  border-color: var(--zone-border-strong);
 }
 
 .input {
   width: 100%;
   padding: 10px 12px;
   border-radius: var(--radius);
-  border: 1px solid var(--tg-secondary-bg-color);
-  background: var(--tg-bg-color);
-  color: var(--tg-text-color);
+  border: 1px solid var(--zone-border);
+  background: var(--zone-surface);
+  color: var(--zone-text);
   font: inherit;
   font-size: 16px;
+  transition:
+    border-color var(--zone-transition),
+    box-shadow var(--zone-transition);
+}
+
+.input::placeholder {
+  color: var(--zone-text-muted);
 }
 
 .input:focus {
-  outline: 2px solid var(--tg-button-color);
-  outline-offset: -2px;
+  outline: none;
+  border-color: var(--zone-magenta);
+  box-shadow: 0 0 0 3px var(--zone-magenta-glow);
 }
 
 .profile-hero__tenure {
   margin: 8px 0 0;
   font-size: 14px;
   font-weight: 500;
-  color: var(--tg-link-color);
+  color: var(--zone-magenta);
 }
 
 /* ---------- profile ---------- */
 
+/*
+ * The one screen with room for brand decoration: no grid to compete with, and
+ * it is a destination rather than a step in a purchase. `--zone-decor-tentacle`
+ * is `none` until the artwork exists, so today this is a plain block.
+ */
 .profile-hero {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -613,14 +810,41 @@ select.input {
   padding: 8px 0 4px;
 }
 
+.profile-hero::before {
+  content: '';
+  position: absolute;
+  inset: -8px -16px auto;
+  height: 140px;
+  background-image: var(--zone-decor-tentacle);
+  background-repeat: no-repeat;
+  background-position: top center;
+  background-size: cover;
+  opacity: 0.1;
+  pointer-events: none;
+}
+
 .profile-hero__avatar {
+  position: relative;
   width: 76px;
   height: 76px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--tg-button-color);
-  color: var(--tg-button-text-color);
+  /*
+   * The single most branded object in the app, so it gets the one real glow:
+   * a radial wash of magenta over graphite, contained inside 76px. Larger or
+   * repeated, this same treatment is what makes an interface look cheap.
+   */
+  background:
+    radial-gradient(
+      circle at 30% 25%,
+      var(--zone-magenta-glow),
+      transparent 70%
+    ),
+    var(--zone-surface-3);
+  box-shadow: inset 0 0 0 1px var(--zone-border-strong);
+  color: var(--zone-text);
+  font-family: var(--zone-font-display);
   font-size: 30px;
   font-weight: 600;
   text-transform: uppercase;
@@ -632,6 +856,38 @@ select.input {
   height: 76px;
   border-radius: 50%;
   margin-bottom: 12px;
+}
+
+/*
+ * Brand signature at the end of the profile, the one place a wordmark does not
+ * compete with anything. Hidden until the asset exists — an empty box with a
+ * caption would be worse than nothing.
+ */
+.brand-signature {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+  padding-bottom: 4px;
+}
+
+/*
+ * Type until the wordmark exists. Letterspaced small caps rather than invented
+ * graphics: it is honest about being text, and it will not have to be undone —
+ * the wrapper takes an <img class="brand-signature__mark"> in its place.
+ */
+.brand-signature__wordmark {
+  font-family: var(--zone-font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--zone-text-muted);
+}
+
+.brand-signature__mark {
+  height: 18px;
+  width: auto;
+  opacity: 0.55;
 }
 
 /* ---------- category grid ---------- */
@@ -650,9 +906,9 @@ select.input {
  * glance, because the emoji was never carrying meaning on its own.
  */
 .category-card {
-  background: var(--tg-section-bg-color);
+  background: var(--zone-surface-2);
+  border: 1px solid var(--zone-border);
   border-radius: var(--radius);
-  border: none;
   padding: 8px 10px;
   display: flex;
   flex-direction: row;
@@ -663,7 +919,10 @@ select.input {
   cursor: pointer;
   text-align: left;
   min-height: 44px;
-  transition: transform 0.12s ease;
+  transition:
+    transform 0.12s ease,
+    border-color var(--zone-transition),
+    background-color var(--zone-transition);
 }
 
 .category-card:active {
@@ -671,10 +930,15 @@ select.input {
 }
 
 .category-card[aria-pressed='true'] {
-  outline: 2px solid var(--tg-button-color);
-  outline-offset: -2px;
+  border-color: var(--zone-magenta);
+  background: var(--zone-surface-3);
 }
 
+/*
+ * Emoji in a frame. The glyph itself is catalogue data edited in the admin
+ * panel, so the brand can only own its setting: a graphite disc with a hairline
+ * that makes twenty different emoji look like one set.
+ */
 .category-card__icon {
   flex: 0 0 auto;
   width: 28px;
@@ -682,7 +946,8 @@ select.input {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--tg-secondary-bg-color);
+  background: var(--zone-surface-3);
+  box-shadow: inset 0 0 0 1px var(--zone-border);
   font-size: 15px;
   line-height: 1;
 }
@@ -720,9 +985,9 @@ select.input {
   aspect-ratio: 16 / 9;
   min-height: 96px;
   padding: 12px;
-  border: none;
+  border: 1px solid var(--zone-border);
   border-radius: var(--radius);
-  background: var(--tg-section-bg-color);
+  background: var(--zone-surface-2);
   color: inherit;
   font: inherit;
   text-align: left;
@@ -779,16 +1044,26 @@ select.input {
 /*
  * A scrim only when there is an image underneath, so text over artwork stays
  * legible without dimming a plain coloured card.
+ *
+ * A gradient in the page black rather than a flat panel: banner artwork is
+ * uploaded by staff and can be anything, and a hard-edged dark chip floating on
+ * a photo announces that the caption was bolted on. The negative side margins
+ * cancel the card's padding so the band reaches both edges.
  */
 .banner-card__media + .banner-card__body {
-  padding: 6px 8px;
-  margin: -6px -8px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
+  padding: 32px 12px 12px;
+  margin: 0 -12px -12px;
+  background: linear-gradient(
+    to top,
+    rgba(8, 7, 12, 0.94),
+    rgba(8, 7, 12, 0.55) 60%,
+    rgba(8, 7, 12, 0)
+  );
+  color: var(--zone-text);
 }
 
 .banner-card__title {
+  font-family: var(--zone-font-display);
   font-size: 16px;
   font-weight: 600;
   overflow: hidden;
@@ -798,10 +1073,19 @@ select.input {
 
 .banner-card__subtitle {
   font-size: 13px;
-  opacity: 0.85;
+  color: var(--zone-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * Over artwork the subtitle sits on the scrim, where a grey would sink into the
+ * gradient; it stays white and leans on opacity instead.
+ */
+.banner-card__media + .banner-card__body .banner-card__subtitle {
+  color: var(--zone-text);
+  opacity: 0.8;
 }
 
 /* ---------- product list ---------- */
@@ -813,27 +1097,53 @@ select.input {
 }
 
 .product-card {
-  background: var(--tg-section-bg-color);
+  background: var(--zone-surface-2);
+  border: 1px solid var(--zone-border);
   border-radius: var(--radius);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   text-align: left;
-  border: none;
   padding: 0;
   color: inherit;
   font: inherit;
   cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    border-color var(--zone-transition);
+}
+
+.product-card:active {
+  transform: scale(0.98);
 }
 
 .product-card__media {
   aspect-ratio: 1 / 1;
   width: 100%;
   object-fit: cover;
-  background: var(--tg-secondary-bg-color);
+  background: var(--zone-surface-3);
   display: grid;
   place-items: center;
   font-size: 32px;
+}
+
+/*
+ * Last-resort product artwork: no uploaded image and no emoji on the record.
+ *
+ * Deliberately a quiet frame rather than invented brand graphics — a placeholder
+ * that tries to look designed is the thing that makes a catalogue look like a
+ * template. A faint violet wash separates it from a card whose image simply
+ * failed to load, and the glyph inside is a neutral media mark.
+ */
+.product-media-fallback {
+  background:
+    radial-gradient(
+      circle at 50% 40%,
+      var(--zone-violet-glow),
+      transparent 70%
+    ),
+    var(--zone-surface-3);
+  color: var(--zone-text-muted);
 }
 
 .product-card__body {
@@ -855,12 +1165,19 @@ select.input {
   overflow: hidden;
 }
 
+/*
+ * Prices are compared down a column of cards, so they are set in the display
+ * face with tabular figures: proportional digits make two prices of the same
+ * length look different widths, which reads as sloppy alignment.
+ */
 .price {
+  font-family: var(--zone-font-display);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .price--old {
-  color: var(--tg-hint-color);
+  color: var(--zone-text-muted);
   text-decoration: line-through;
   font-weight: 400;
   font-size: 13px;
@@ -871,55 +1188,88 @@ select.input {
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--tg-secondary-bg-color);
-  color: var(--tg-hint-color);
+  background: var(--zone-surface-3);
+  color: var(--zone-text-secondary);
 }
 
 .badge--danger {
-  color: var(--tg-destructive-text-color);
+  color: var(--zone-error);
+  background: var(--zone-error-tint);
 }
 
 /*
- * "Coming soon", not "sold out". Deliberately the link colour rather than the
- * destructive one: an unfilled section root is a promise, and red reads as a
+ * "Coming soon", not "sold out". Deliberately the brand accent rather than the
+ * error colour: an unfilled section root is a promise, and red reads as a
  * failure the shop should apologise for.
  */
 .badge--soon {
-  color: var(--tg-link-color);
+  color: var(--zone-magenta);
+  background: var(--zone-magenta-glow);
 }
 
 /* ---------- buttons ---------- */
 
 .button {
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--radius);
   padding: 12px 16px;
   font-size: 15px;
-  font-weight: 500;
-  background: var(--tg-button-color);
-  color: var(--tg-button-text-color);
+  font-weight: 600;
+  background: var(--zone-magenta);
+  /* Dark label: white on #E83DFF is 3.2:1. See `--zone-on-magenta`. */
+  color: var(--zone-on-magenta);
   cursor: pointer;
+  transition:
+    background-color var(--zone-transition),
+    box-shadow var(--zone-transition),
+    opacity var(--zone-transition);
+}
+
+.button:active {
+  /* A pressed accent surface cannot get darker without leaving the palette, so
+     the feedback is a tightening halo instead. */
+  box-shadow: 0 0 0 3px var(--zone-magenta-glow);
 }
 
 .button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
 }
 
+.button:disabled:active {
+  box-shadow: none;
+}
+
 .button--secondary {
-  background: var(--tg-secondary-bg-color);
-  color: var(--tg-text-color);
+  background: var(--zone-surface-3);
+  border-color: var(--zone-border);
+  color: var(--zone-text);
+}
+
+.button--secondary:active {
+  background: var(--zone-surface-2);
+  box-shadow: none;
 }
 
 .button--ghost {
   background: transparent;
-  color: var(--tg-link-color);
+  border-color: transparent;
+  color: var(--zone-magenta);
   padding: 8px;
+}
+
+.button--ghost:active {
+  box-shadow: none;
 }
 
 .button--danger {
   background: transparent;
-  color: var(--tg-destructive-text-color);
+  border-color: transparent;
+  color: var(--zone-error);
+}
+
+.button--danger:active {
+  box-shadow: none;
 }
 
 /* ---------- quantity stepper ---------- */
@@ -927,7 +1277,8 @@ select.input {
 .stepper {
   display: inline-flex;
   align-items: center;
-  background: var(--tg-secondary-bg-color);
+  background: var(--zone-surface-3);
+  box-shadow: inset 0 0 0 1px var(--zone-border);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -935,7 +1286,7 @@ select.input {
 .stepper button {
   border: none;
   background: transparent;
-  color: var(--tg-text-color);
+  color: var(--zone-text);
   width: 32px;
   height: 32px;
   font-size: 18px;
@@ -964,12 +1315,44 @@ select.input {
   padding: var(--page-padding);
 }
 
+/*
+ * Empty-state artwork frame.
+ *
+ * A framed tile rather than a bare glyph, so the emoji the call sites still pass
+ * looks deliberate on a dark background. It is also the mount point for the
+ * OCHKISK illustrations: when they land, `EmptyState` receives `art` and the
+ * same frame holds an <img> instead, with no other change.
+ */
+.empty-art {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  background:
+    radial-gradient(
+      circle at 50% 35%,
+      var(--zone-violet-glow),
+      transparent 70%
+    ),
+    var(--zone-surface-2);
+  box-shadow: inset 0 0 0 1px var(--zone-border);
+  font-size: 40px;
+  line-height: 1;
+}
+
+.empty-art__image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--tg-secondary-bg-color) 25%,
-    var(--tg-section-bg-color) 50%,
-    var(--tg-secondary-bg-color) 75%
+    var(--zone-surface) 25%,
+    var(--zone-surface-3) 50%,
+    var(--zone-surface) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.2s infinite;
@@ -988,6 +1371,19 @@ select.input {
 @media (prefers-reduced-motion: reduce) {
   .skeleton {
     animation: none;
+  }
+
+  /*
+   * Extends the existing shimmer opt-out to the brand layer's transitions. Not
+   * `all: unset`-style nuking: colour and shadow changes still happen, they just
+   * happen at once.
+   */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 
@@ -1011,11 +1407,13 @@ select.input {
 /* ---------- delivered secrets ---------- */
 
 .secret {
-  background: var(--tg-secondary-bg-color);
+  background: var(--zone-surface);
+  box-shadow: inset 0 0 0 1px var(--zone-border);
   border-radius: 8px;
   padding: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
+  color: var(--zone-text);
   word-break: break-all;
   white-space: pre-wrap;
   user-select: all;
@@ -1023,23 +1421,24 @@ select.input {
 
 .order-status {
   font-size: 13px;
+  font-weight: 500;
   padding: 2px 10px;
   border-radius: 999px;
 }
 
 .order-status--PAID {
-  background: rgba(52, 199, 89, 0.15);
-  color: #34c759;
+  background: var(--zone-success-tint);
+  color: var(--zone-success);
 }
 
 .order-status--PENDING {
-  background: rgba(255, 149, 0, 0.15);
-  color: #ff9500;
+  background: var(--zone-warning-tint);
+  color: var(--zone-warning);
 }
 
 .order-status--CANCELLED,
 .order-status--FAILED,
 .order-status--REFUNDED {
-  background: rgba(255, 59, 48, 0.12);
-  color: var(--tg-destructive-text-color);
+  background: var(--zone-error-tint);
+  color: var(--zone-error);
 }
