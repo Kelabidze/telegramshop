@@ -388,11 +388,16 @@ render → validate → backup → install → reload
 
 1. **render** — `deploy/Caddyfile` из текущего checkout'а, адрес сайта
    переписывается на домен сервера. Домен берётся из `DOMAIN`, а если он не
-   задан — из `PUBLIC_APP_URL` в `shared/api.env`, чтобы у домена был ровно один
-   источник истины. Значение проверяется регуляркой: пробел или фигурная скобка
-   в домене открыли бы второй site-блок, поэтому такое отклоняется до рендера.
-   Файл секретов **читается grep/sed, а не `source`**: там лежит токен бота, и
-   бэктик в секрете не должен исполниться ради получения имени хоста.
+   задан — из `api.env`, по порядку: `PUBLIC_APP_URL`, `PUBLIC_API_URL`,
+   `CORS_ORIGINS` (первый origin списка). Ключей три, потому что
+   `setup-server.sh` **никогда не перезаписывает существующий `api.env`**: сервер
+   живёт с тем шаблоном, с которым его развернули, и `PUBLIC_APP_URL` на нём
+   может просто отсутствовать. Именно на этом упал первый деплой синхронизации.
+   В лог пишется, из какого ключа взят домен. Значение проверяется регуляркой:
+   пробел или фигурная скобка в домене открыли бы второй site-блок, поэтому такое
+   отклоняется до рендера. Файл секретов **читается grep/sed, а не `source`**:
+   там лежит токен бота, и бэктик в секрете не должен исполниться ради получения
+   имени хоста.
 2. **validate** — `caddy validate` запускается по **staged**-файлу
    `/srv/shop/caddy/Caddyfile.staged`, то есть **до** того, как тронут рабочий
    конфиг. Это главное свойство схемы: невалидный конфиг стоит проваленного
@@ -557,6 +562,7 @@ Vite проксирует `/api` на бэкенд, поэтому одного 
 | `the SQLite driver did not load` | бинарник собран под другой ABI/платформу; проверьте `nodeMajor` и `platform` в `artifact.json` |
 | `deploy rolled back` | сайт уже вернулся на прошлый релиз; причина в `journalctl -u shop-api -n 50` |
 | `Caddy config sync failed` | деплой остановлен **до** переключения симлинка, работает прежний релиз, `/etc/caddy/Caddyfile` не изменён. Причина в выводе выше: невалидный `deploy/Caddyfile`, недостающее правило sudo или недоступный домен |
+| `could not determine the domain` | в `api.env` нет ни `PUBLIC_APP_URL`, ни `PUBLIC_API_URL`, ни `CORS_ORIGINS`. Допишите любой из них или задайте домен явно: `DOMAIN=ochkisk.shop bash /srv/shop/repo/deploy/sync-caddy.sh apply` |
 | `the rendered Caddy config is invalid` | ошибка в `deploy/Caddyfile`; рабочий конфиг не тронут, сайт работает. Проверьте локально: `caddy validate --config deploy/Caddyfile` |
 | `could not install … to /etc/caddy/Caddyfile` | правило sudo не совпало дословно (обычно после смены `APP_ROOT` или пути к `install`); перезапустите `setup-server.sh` |
 | `caddy reload failed` | конфиг валиден и уже на диске, но процесс работает со старым; `journalctl -u caddy -n 30`, затем `systemctl reload caddy` вручную |

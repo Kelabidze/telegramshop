@@ -78,13 +78,48 @@ as_root() {
   fi
 }
 
+# Reads one KEY=value from the secrets file and reduces it to a bare hostname.
+#
+# grep/sed rather than `source`: this file holds the bot token, and a stray
+# backtick in a secret must not be executed to learn a hostname. `tail -1` so a
+# later line wins, matching how the shell would read repeated assignments.
+read_host_from_env() {
+  local env_file="$1" key="$2" value=''
+
+  [[ -r "$env_file" ]] || return 0
+
+  value="$(sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$env_file" | tail -1)"
+  value="${value%\"}"; value="${value#\"}"
+  value="${value%\'}"; value="${value#\'}"
+  # CORS_ORIGINS may carry a comma-separated list; the first entry is this site.
+  value="${value%%,*}"
+  value="${value#https://}"
+  value="${value#http://}"
+  value="${value%%/*}"
+  value="${value%%:*}"
+
+  printf '%s' "$value"
+}
+
 # ---------------------------------------------------------------------------
 # Which domain the site block should declare.
 #
-# Derived from PUBLIC_APP_URL in the secrets file, so the domain has exactly one
-# source of truth on a provisioned server. A hard-coded default here would be a
-# second one, and the two would disagree the first time the domain changed.
-# setup-server.sh passes DOMAIN explicitly, which wins.
+# Derived from the secrets file, so the domain has exactly one source of truth on
+# a provisioned server. A hard-coded default here would be a second one, and the
+# two would disagree the first time the domain changed. setup-server.sh passes
+# DOMAIN explicitly, which wins.
+#
+# Several keys are tried because `setup-server.sh` NEVER rewrites an existing
+# api.env, so a server keeps whatever template it was provisioned with.
+# PUBLIC_APP_URL only entered that template in 1e24271; the production server was
+# provisioned in 6a2df7b, eleven days earlier, and therefore has no such line.
+# Reading only PUBLIC_APP_URL aborted the first deploy that ran this script, at a
+# point where every server old enough to matter still stated the same domain
+# twice over in PUBLIC_API_URL and CORS_ORIGINS.
+#
+# This is the same trap `resolveUploadsDir` documents in apps/api/src/config.ts:
+# a new variable is absent exactly on the long-lived servers that need it most,
+# so derive it from what is already there instead of failing.
 # ---------------------------------------------------------------------------
 resolve_domain() {
   if [[ -n "${DOMAIN:-}" ]]; then
@@ -92,23 +127,24 @@ resolve_domain() {
     return 0
   fi
 
-  local env_file="$APP_ROOT/shared/api.env" url=''
-  if [[ -r "$env_file" ]]; then
-    # Read with grep/sed instead of sourcing: this file holds the bot token, and
-    # a stray backtick in a secret must not be executed to learn a hostname.
-    url="$(sed -n 's/^[[:space:]]*PUBLIC_APP_URL[[:space:]]*=[[:space:]]*//p' "$env_file" | tail -1)"
-    url="${url%\"}"; url="${url#\"}"
-    url="${url%\'}"; url="${url#\'}"
-    url="${url#https://}"
-    url="${url#http://}"
-    url="${url%%/*}"
-    url="${url%%:*}"
-  fi
+  local env_file="$APP_ROOT/shared/api.env" url='' key
+  # Order is deliberate: the app origin is what a Mini App is opened from, and
+  # only then the API origin and the CORS allow-list. On this stand all three
+  # hold the same host; on a split-origin setup the first is the right answer.
+  for key in PUBLIC_APP_URL PUBLIC_API_URL CORS_ORIGINS; do
+    url="$(read_host_from_env "$env_file" "$key")"
+    if [[ -n "$url" ]]; then
+      # stderr, not stdout: this function's stdout IS the domain, and anything
+      # else printed here would be captured into it by the caller's $(...).
+      printf '    domain source: %s in %s\n' "$key" "$(basename "$env_file")" >&2
+      printf '%s' "$url"
+      return 0
+    fi
+  done
 
-  [[ -n "$url" ]] || fail "could not determine the domain.
-       Set PUBLIC_APP_URL in ${env_file}, or pass DOMAIN=example.com."
-
-  printf '%s' "$url"
+  fail "could not determine the domain.
+       Tried PUBLIC_APP_URL, PUBLIC_API_URL and CORS_ORIGINS in ${env_file}.
+       Set one of them, or pass DOMAIN=example.com."
 }
 
 # A hostname, and nothing else. The value is interpolated into a Caddy site
@@ -185,8 +221,6 @@ require_staging_dir() {
     return 0
   fi
 
-  # Root can create it; the deploy user cannot create a directory under a root
-  # owned parent, and must not silently skip the sync either.
   if [[ $EUID -eq 0 ]]; then
     local owner="${APP_USER:-shop}"
     install -d -o "$owner" -g "$owner" -m 750 "$STAGING_DIR"
@@ -194,7 +228,21 @@ require_staging_dir() {
     return 0
   fi
 
-  fail "${STAGING_DIR} does not exist.
+  # The deploy user owns $APP_ROOT (setup-server.sh creates /srv/shop as
+  # APP_USER, mode 755), so it can create this directory itself. Doing so keeps
+  # the first deploy after this feature from stopping on a missing directory
+  # that needs no privilege to make — the earlier version refused here on the
+  # false premise that the parent was root-owned, and the resulting error told
+  # the operator to run a command they did not actually need.
+  #
+  # A genuine permission problem still fails, because the next step cannot work
+  # without the sudo grants either, and its message names the exact rule.
+  if install -d -m 750 "$STAGING_DIR" 2>/dev/null; then
+    log "created ${STAGING_DIR}"
+    return 0
+  fi
+
+  fail "${STAGING_DIR} does not exist and could not be created.
        Provision it once as root:
          sudo install -d -o shop -g shop -m 750 ${STAGING_DIR}"
 }
