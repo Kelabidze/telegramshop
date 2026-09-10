@@ -450,6 +450,11 @@ describe('banner management', () => {
     bannerId = banner.id;
     assert.equal(banner.title, 'Скидки недели');
     assert.equal(banner.isActive, true, 'a new banner defaults to visible');
+    assert.equal(
+      banner.section,
+      'SHOP',
+      'a banner with no section belongs to the main catalog',
+    );
   });
 
   it('serves active banners publicly, without a signature', async () => {
@@ -459,6 +464,100 @@ describe('banner management', () => {
     assert.equal(res.statusCode, 200, res.body);
     const titles = res.json().banners.map((b: { title: string }) => b.title);
     assert.ok(titles.includes('Скидки недели'));
+  });
+
+  it('keeps each section reading only its own banners', async () => {
+    // The whole point of the field: «Всё для абуза» must not inherit the
+    // catalog's promos, and the catalog must not show the section's poster.
+    const created = await call({
+      method: 'POST',
+      url: '/api/banners',
+      as: IDS.catalogManager,
+      body: { title: 'Постер абуза', section: 'ABUSE', sortOrder: 0 },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    assert.equal(created.json().banner.section, 'ABUSE');
+
+    const abuse = await call({ method: 'GET', url: '/api/banners?section=ABUSE' });
+    assert.equal(abuse.statusCode, 200, abuse.body);
+    const abuseTitles = abuse.json().banners.map((b: { title: string }) => b.title);
+    assert.deepEqual(abuseTitles, ['Постер абуза']);
+
+    const shop = await call({ method: 'GET', url: '/api/banners?section=SHOP' });
+    const shopTitles = shop.json().banners.map((b: { title: string }) => b.title);
+    assert.equal(
+      shopTitles.includes('Постер абуза'),
+      false,
+      'a section banner must not leak into the catalog strip',
+    );
+  });
+
+  it('defaults an unqualified read to the catalog section', async () => {
+    // A client that predates sections sends no parameter and must keep getting
+    // exactly what it used to: the catalog's banners, never another screen's.
+    const bare = await call({ method: 'GET', url: '/api/banners' });
+    const qualified = await call({ method: 'GET', url: '/api/banners?section=SHOP' });
+    assert.deepEqual(bare.json(), qualified.json());
+  });
+
+  it('rejects an unknown section instead of serving everything', async () => {
+    // A typo that fell through to "no filter" would put the catalog's promos on
+    // top of every screen, which is the failure this parameter exists to prevent.
+    const res = await call({ method: 'GET', url: '/api/banners?section=HOME' });
+    assert.equal(res.statusCode, 400, res.body);
+    assert.equal(res.json().error.code, 'VALIDATION_ERROR');
+  });
+
+  it('ships one banner at most to «Всё для абуза»', async () => {
+    // Its artwork is square, so a second poster would be the entire first
+    // screen. The cap is per section and lives in the read.
+    for (const sortOrder of [1, 2]) {
+      const res = await call({
+        method: 'POST',
+        url: '/api/banners',
+        as: IDS.catalogManager,
+        body: { title: `Абуз ${sortOrder}`, section: 'ABUSE', sortOrder },
+      });
+      assert.equal(res.statusCode, 201, res.body);
+    }
+
+    const res = await call({ method: 'GET', url: '/api/banners?section=ABUSE' });
+    assert.equal(
+      res.json().banners.length,
+      1,
+      'the square poster is shown one at a time',
+    );
+    assert.equal(
+      res.json().banners[0].title,
+      'Постер абуза',
+      'the lowest sortOrder wins',
+    );
+  });
+
+  it('moves a banner between sections on request', async () => {
+    // Staff can retarget a banner instead of deleting and re-uploading it, and
+    // the storefront read has to follow immediately.
+    const moved = await call({
+      method: 'PUT',
+      url: `/api/banners/${bannerId}`,
+      as: IDS.catalogManager,
+      body: { section: 'ABUSE' },
+    });
+    assert.equal(moved.statusCode, 200, moved.body);
+    assert.equal(moved.json().banner.section, 'ABUSE');
+
+    const shop = await call({ method: 'GET', url: '/api/banners?section=SHOP' });
+    const shopIds = shop.json().banners.map((b: { id: string }) => b.id);
+    assert.equal(shopIds.includes(bannerId), false);
+
+    // Put it back: the tests below describe a catalog banner.
+    const back = await call({
+      method: 'PUT',
+      url: `/api/banners/${bannerId}`,
+      as: IDS.catalogManager,
+      body: { section: 'SHOP' },
+    });
+    assert.equal(back.json().banner.section, 'SHOP');
   });
 
   it('rejects a link that is neither https nor an in-app category', async () => {

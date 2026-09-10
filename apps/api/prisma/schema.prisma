@@ -239,7 +239,7 @@ model OrderLine {
   @@index([productId])
 }
 
-/// A promo strip shown above the catalog on the home screen.
+/// A promo banner shown above the products of one storefront section.
 ///
 /// Content lives in the database rather than in the bundle so a banner can be
 /// swapped without a deploy. Deliberately dumb: an image, a caption and one
@@ -255,11 +255,18 @@ model Banner {
   isActive  Boolean @default(true)
   sortOrder Int     @default(0)
 
+  /// Which storefront screen shows it: SHOP | ABUSE. Same values as
+  /// `Product.section`, so the two cannot drift into separate vocabularies.
+  /// String like every other app-level enum here, for SQLite/Postgres parity.
+  /// The default backfills rows created before sections existed, which all
+  /// belonged to the main catalog.
+  section   String  @default("SHOP")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// The home screen reads active banners in display order on every visit.
-  @@index([isActive, sortOrder])
+  /// The storefront read: active banners of one section, in display order.
+  @@index([section, isActive, sortOrder])
 }
 
 /// Idempotency guard for Telegram webhook updates.

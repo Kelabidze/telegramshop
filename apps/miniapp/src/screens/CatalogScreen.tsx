@@ -1,27 +1,15 @@
-﻿import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { Category } from '@shop/shared';
-import { api } from '../api/client.ts';
-import {
-  CategorySkeletonGrid,
-  EmptyState,
-  ErrorState,
-  ProductSkeletonGrid,
-} from '../components/ui.tsx';
-import { ProductGrid } from '../components/ProductGrid.tsx';
-import { BannerStrip } from '../components/BannerStrip.tsx';
-import {
-  forgetScrollPosition,
-  useScrollRestoration,
-} from '../hooks/useScrollRestoration.ts';
-import { haptic } from '../telegram/webapp.ts';
+﻿import { CatalogBrowser } from '../components/CatalogBrowser.tsx';
 
 /**
- * Home screen: category grid and product grid.
+ * Home screen: promo banners, the category grid and the product grid.
  *
- * The greeting lives in `AppLayout` now, so this screen no longer loads the
- * viewer: one `['me']` query for the whole app means the header and the club
- * notices can never disagree about who is looking.
+ * The listing itself lives in `CatalogBrowser`, which «Всё для абуза» mounts as
+ * well. This screen is only the placement: which section's banners belong above
+ * it and which scroll namespace its offsets are filed under.
+ *
+ * The greeting lives in `AppLayout`, so this screen does not load the viewer:
+ * one `['me']` query for the whole app means the header and the club notices can
+ * never disagree about who is looking.
  *
  * Prices are shown plainly — a single figure, no strike-throughs — but it is
  * the figure *this* viewer will be charged: the club tier for a member, the
@@ -36,163 +24,14 @@ export function CatalogScreen({
   isSubscribedChannel: boolean;
   onOpenProduct: (slug: string) => void;
 }) {
-  const [category, setCategory] = useState<string | null>(null);
-
-  const categoriesQuery = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => api.listCategories(),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const bannersQuery = useQuery({
-    queryKey: ['banners'],
-    queryFn: () => api.listBanners(),
-    staleTime: 5 * 60 * 1000,
-    // Promo content is never worth an error screen: the catalog below it is the
-    // point of the page.
-    retry: false,
-  });
-
-  const productsQuery = useQuery({
-    queryKey: ['products', category],
-    queryFn: () => api.listProducts(category ? { category } : {}),
-  });
-
-  // Per filter, not per screen: each category is a different list, and restoring
-  // one list's offset onto another lands somewhere arbitrary. Waits for the
-  // products so the document is tall enough to scroll when the offset is applied.
-  useScrollRestoration(
-    `catalog:${category ?? 'all'}`,
-    productsQuery.data !== undefined,
-  );
-
-  /** Switching a filter starts a new list, so its offset must not be inherited. */
-  const selectCategory = (next: string | null) => {
-    haptic('selection');
-    forgetScrollPosition(`catalog:${next ?? 'all'}`);
-    setCategory(next);
-    // Two-argument form: older Telegram WebViews drop an options object whose
-    // `behavior` they do not recognise, and then do not scroll at all.
-    window.scrollTo(0, 0);
-  };
-
-  const selectedTitle = useMemo(
-    () =>
-      categoriesQuery.data?.find((c) => c.slug === category)?.title ?? null,
-    [categoriesQuery.data, category],
-  );
-
   return (
     <div className="page">
-      {/*
-        Above the catalog, below the profile header. No skeleton while it loads:
-        banners are promotional, and a shimmering placeholder for content that
-        may not exist would push the catalog down for nothing.
-      */}
-      <BannerStrip
-        banners={bannersQuery.data ?? []}
-        onOpenCategory={selectCategory}
+      <CatalogBrowser
+        bannerSection="SHOP"
+        scrollNamespace="catalog"
+        isSubscribedChannel={isSubscribedChannel}
+        onOpenProduct={onOpenProduct}
       />
-
-      <h2 className="section-title" style={{ marginTop: 0 }}>
-        Каталог
-      </h2>
-
-      {categoriesQuery.isPending ? <CategorySkeletonGrid /> : null}
-
-      {categoriesQuery.isError ? (
-        <ErrorState
-          message={(categoriesQuery.error as Error).message}
-          onRetry={() => void categoriesQuery.refetch()}
-        />
-      ) : null}
-
-      {categoriesQuery.data && categoriesQuery.data.length > 0 ? (
-        <CategoryGrid
-          categories={categoriesQuery.data}
-          selected={category}
-          onSelect={(slug) =>
-            // Tapping the active tile clears the filter too, so the grid itself
-            // is a way back to "everything" without hunting for the All tile.
-            selectCategory(category === slug ? null : slug)
-          }
-        />
-      ) : null}
-
-      <div className="row" style={{ marginTop: 20 }}>
-        <h2 className="section-title" style={{ margin: 0 }}>
-          {selectedTitle ?? 'Все товары'}
-        </h2>
-        <div className="spacer" />
-        {/*
-          Explicit reset, shown only while a filter is on: an always-visible
-          "Все товары" next to an unfiltered list is a button that does nothing.
-        */}
-        {category ? (
-          <button
-            type="button"
-            className="button button--ghost"
-            onClick={() => selectCategory(null)}
-          >
-            Все товары ✕
-          </button>
-        ) : null}
-      </div>
-
-      {productsQuery.isPending ? <ProductSkeletonGrid /> : null}
-
-      {productsQuery.isError ? (
-        <ErrorState
-          message={(productsQuery.error as Error).message}
-          onRetry={() => void productsQuery.refetch()}
-        />
-      ) : null}
-
-      {productsQuery.data?.length === 0 ? (
-        <EmptyState
-          emoji="🔍"
-          title="Товаров нет"
-          description="В этой категории пока пусто. Загляните позже."
-        />
-      ) : null}
-
-      {productsQuery.data && productsQuery.data.length > 0 ? (
-        <ProductGrid
-          products={productsQuery.data}
-          isSubscribedChannel={isSubscribedChannel}
-          onOpenProduct={onOpenProduct}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function CategoryGrid({
-  categories,
-  selected,
-  onSelect,
-}: {
-  categories: Category[];
-  selected: string | null;
-  onSelect: (slug: string) => void;
-}) {
-  return (
-    <div className="category-grid">
-      {categories.map((category) => (
-        <button
-          key={category.id}
-          type="button"
-          className="category-card"
-          aria-pressed={selected === category.slug}
-          onClick={() => onSelect(category.slug)}
-        >
-          {/* Emoji is optional in the schema, so every tile needs a fallback. */}
-          <span className="category-card__icon" aria-hidden="true">
-            {category.emoji || '🗂'}
-          </span>
-          <span className="category-card__title">{category.title}</span>
-        </button>
-      ))}
     </div>
   );
 }

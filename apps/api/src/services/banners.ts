@@ -1,12 +1,24 @@
-import type { Banner, BannerInput, BannerUpdate } from '@shop/shared';
+import {
+  BANNER_MAX_VISIBLE,
+  productSectionSchema,
+  type Banner,
+  type BannerInput,
+  type BannerUpdate,
+  type ProductSection,
+} from '@shop/shared';
 import { prisma } from '../db.js';
 import { notFound } from '../errors.js';
 
 /**
  * Promo banners.
  *
- * Read side is public and unauthenticated, like the catalog: the home screen
- * shows banners before anything is known about the viewer.
+ * Read side is public and unauthenticated, like the catalog: a storefront screen
+ * shows its banners before anything is known about the viewer.
+ *
+ * A banner belongs to a section, and the read is always per section. There is no
+ * "all active banners" query on purpose: a screen that pulled the whole table
+ * and filtered client-side would show the catalog's promos above «Всё для
+ * абуза» for as long as it took the filter to be written.
  */
 
 const BANNER_SELECT = {
@@ -17,36 +29,56 @@ const BANNER_SELECT = {
   linkUrl: true,
   isActive: true,
   sortOrder: true,
+  section: true,
 } as const;
 
-/**
- * How many banners the home screen may show.
- *
- * Capped in the read, not only in the UI: the strip is above the catalog, and a
- * careless tenth banner would push the products off the first screen entirely.
- */
-const MAX_VISIBLE = 2;
+type BannerRow = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  imageUrl: string | null;
+  linkUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  section: string;
+};
 
-/** Active banners in display order, for the home screen. */
-export async function listActiveBanners(): Promise<Banner[]> {
-  return prisma.banner.findMany({
-    where: { isActive: true },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-    take: MAX_VISIBLE,
-    select: BANNER_SELECT,
-  });
+/**
+ * `section` is a plain string in the database, so an unknown value has to resolve
+ * to something. It falls back to `SHOP` rather than throwing: a banner is
+ * decoration, and a bad row must not take the storefront down with it.
+ */
+function toBanner(row: BannerRow): Banner {
+  return {
+    ...row,
+    section: productSectionSchema.catch('SHOP').parse(row.section),
+  };
 }
 
-/** Every banner, including hidden ones — for staff. */
+/** Active banners of one section, in display order, for the storefront. */
+export async function listActiveBanners(
+  section: ProductSection,
+): Promise<Banner[]> {
+  const rows = await prisma.banner.findMany({
+    where: { isActive: true, section },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+    take: BANNER_MAX_VISIBLE[section],
+    select: BANNER_SELECT,
+  });
+  return rows.map(toBanner);
+}
+
+/** Every banner of every section, including hidden ones — for staff. */
 export async function listAllBanners(): Promise<Banner[]> {
-  return prisma.banner.findMany({
+  const rows = await prisma.banner.findMany({
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
     select: BANNER_SELECT,
   });
+  return rows.map(toBanner);
 }
 
 export async function createBanner(input: BannerInput): Promise<Banner> {
-  return prisma.banner.create({
+  const row = await prisma.banner.create({
     data: {
       title: input.title,
       subtitle: input.subtitle ?? null,
@@ -54,9 +86,11 @@ export async function createBanner(input: BannerInput): Promise<Banner> {
       linkUrl: input.linkUrl ?? null,
       isActive: input.isActive,
       sortOrder: input.sortOrder,
+      section: input.section,
     },
     select: BANNER_SELECT,
   });
+  return toBanner(row);
 }
 
 /**
@@ -72,7 +106,7 @@ export async function updateBanner(
 ): Promise<Banner> {
   await requireBanner(id);
 
-  return prisma.banner.update({
+  const row = await prisma.banner.update({
     where: { id },
     data: {
       ...(input.title === undefined ? {} : { title: input.title }),
@@ -81,9 +115,11 @@ export async function updateBanner(
       ...(input.linkUrl === undefined ? {} : { linkUrl: input.linkUrl ?? null }),
       ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
       ...(input.sortOrder === undefined ? {} : { sortOrder: input.sortOrder }),
+      ...(input.section === undefined ? {} : { section: input.section }),
     },
     select: BANNER_SELECT,
   });
+  return toBanner(row);
 }
 
 /**
@@ -100,10 +136,10 @@ export async function deleteBanner(id: string): Promise<Banner> {
 }
 
 async function requireBanner(id: string): Promise<Banner> {
-  const banner = await prisma.banner.findUnique({
+  const row = await prisma.banner.findUnique({
     where: { id },
     select: BANNER_SELECT,
   });
-  if (!banner) throw notFound(`Banner ${id} was not found.`);
-  return banner;
+  if (!row) throw notFound(`Banner ${id} was not found.`);
+  return toBanner(row);
 }

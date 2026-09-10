@@ -4,6 +4,7 @@ import {
   MEDIA_DIMENSIONS,
   MEDIA_FORMATS,
   formatBytes,
+  type MediaShape,
 } from '@shop/shared';
 import { ApiError, api } from '../api/client.ts';
 import { haptic } from '../telegram/webapp.ts';
@@ -27,8 +28,12 @@ export function MediaPicker({
 }: {
   value: string | null;
   onChange: (url: string | null) => void;
-  /** Which recommended dimensions to advertise. */
-  shape: 'banner' | 'product';
+  /**
+   * Which recommended dimensions to advertise. `bannerSquare` exists because
+   * «Всё для абуза» frames its banner 1:1 — telling staff 16:9 there would have
+   * them upload artwork that gets cropped top and bottom.
+   */
+  shape: MediaShape;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);

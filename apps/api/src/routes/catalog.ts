@@ -17,13 +17,27 @@ const listQuerySchema = z.object({
   country: z.string().min(1).max(64).optional(),
 });
 
+/**
+ * Which section's banners to serve. Defaults to the main catalog so a client
+ * that predates sections keeps getting exactly what it used to.
+ */
+const bannerQuerySchema = z.object({
+  section: productSectionSchema.default('SHOP'),
+});
+
 export const catalogRoutes: FastifyPluginAsync = async (app) => {
   // Catalog is public: browsing does not require a verified viewer.
   app.get('/categories', async () => ({ categories: await listCategories() }));
 
-  // Public too, and for the same reason: the home screen renders the promo strip
-  // before it knows who is looking.
-  app.get('/banners', async () => ({ banners: await listActiveBanners() }));
+  // Public too, and for the same reason: a storefront screen renders its promo
+  // banners before it knows who is looking.
+  app.get('/banners', async (request) => {
+    const parsed = bannerQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      throw validationError('Invalid query parameters.', parsed.error.issues);
+    }
+    return { banners: await listActiveBanners(parsed.data.section) };
+  });
 
   app.get('/products', async (request) => {
     const parsed = listQuerySchema.safeParse(request.query);

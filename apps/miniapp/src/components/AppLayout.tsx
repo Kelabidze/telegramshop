@@ -26,10 +26,16 @@ export type TabName = 'catalog' | 'abuse' | 'cart' | 'orders';
  * The `abuse` slot exists in both modes because the section is edited along its
  * own axis — roots, their countries, and the country list — which does not fit
  * beside the category-shaped catalog screen.
+ *
+ * Its label is the full «Всё для абуза», not the shorthand it used to be: the
+ * bar wraps a long label onto a second line rather than clipping it, and a tab
+ * whose name matches the heading of the screen it opens needs no decoding. The
+ * staff bar keeps a short label — its three neighbours are one word each, and
+ * only one of the four sprouting a second line looks like a rendering fault.
  */
 const SHOPPER_TABS: ReadonlyArray<{ name: TabName; label: string; icon: string }> = [
   { name: 'catalog', label: 'Каталог', icon: '🛍' },
-  { name: 'abuse', label: 'Абуз', icon: '🎯' },
+  { name: 'abuse', label: 'Всё для абуза', icon: '🎯' },
   { name: 'cart', label: 'Корзина', icon: '🛒' },
   { name: 'orders', label: 'Заказы', icon: '📦' },
 ];

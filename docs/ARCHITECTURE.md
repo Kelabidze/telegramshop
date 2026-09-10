@@ -28,7 +28,8 @@ packages/shared/src/         единый контракт (zod-схемы + т�
   pricing.ts                 клубный тариф: standardUnitMinor, cartTotals
   catalog.ts                 Category, Country, Product, ProductSection,
                              ProductVariation, ProductDetail, FulfillmentKind
-  banner.ts                  промо-баннеры: схема, проверка ссылки, category:slug
+  banner.ts                  промо-баннеры: схема, section, лимит на раздел,
+                             проверка ссылки, category:slug
   media.ts                   стандарт медиа: форматы, лимиты, magic bytes
   order.ts                   Order, OrderLine, статусы, входные схемы корзины
   telegram.ts                initData, TelegramUser, Viewer, UserRole, Permission
@@ -54,7 +55,7 @@ apps/api/
     routes/admin.ts          управляющие роуты: каталог, товары, заказы, персонал
     routes/bot.ts            POST /telegram/webhook + обработчики grammY
     services/catalog.ts      чтение каталога, подсчёт остатка
-    services/banners.ts      баннеры: публичное чтение (не больше 2) и правки
+    services/banners.ts      баннеры: публичное чтение по разделу и правки
     services/media.ts        загрузка медиа на диск, квота, безопасные имена
     services/admin-catalog.ts запись каталога: категории, товары, ключи
     services/admin-orders.ts глобальный список заказов (VIEW_ORDERS)
@@ -80,9 +81,12 @@ apps/miniapp/src/
   screens/admin/             AdminCatalogScreen, AdminAbuseScreen,
                              AdminUsersScreen, AdminFinanceScreen — режим управления
   screens/admin/forms.tsx    формы товара и страны, общие для вкладок каталога и «Абуза»
+  screens/admin/BannerManager.tsx CRUD баннеров одного раздела + переключатель показа
   store/staffMode.ts         флаг режима «управление / покупатель»
   components/AppLayout.tsx   корневой каркас: шапка профиля + нижняя навигация
-  components/BannerStrip.tsx промо-полоса над каталогом
+  components/BannerStrip.tsx промо-баннеры раздела: полоса 16:9 или квадрат 1:1
+  components/CatalogBrowser.tsx баннеры + категории + сетка товаров; общий для
+                             «Каталога» и «Всё для абуза»
   components/ui.tsx          Price, Stepper, Spinner, скелетоны, EmptyState,
                              ErrorState, ClubTierNotice, ClubChannelButton
   store/cart.ts              Zustand-корзина с persist в localStorage
@@ -225,7 +229,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | `User`            | `telegramId` — **String**: id не влезает в 2^53; `role` строкой, но для `ADMIN` источник истины — env, не БД; `displayName` — имя в магазине, отдельно от `firstName` |
 | `ManagerPermission` | одно право = одна строка; уникальна в паре `userId` + `permission` |
 | `Category`        | slug, сортировка, emoji                                          |
-| `Banner`          | промо-полоса над каталогом; ни с чем не связан, поэтому удаляется физически |
+| `Banner`          | промо над каталогом раздела; `section` — те же `SHOP`/`ABUSE`, что у товара; ни с чем не связан, поэтому удаляется физически |
 | `Product`         | цена в minor units, `fulfillmentKind`, `staticPayload` (секрет)   |
 | `LicenseKey`      | одна строка = одна единица склада; `claimedAt` + `orderLineId`    |
 | `Order`           | `reference` для человека, `invoicePayload` (уникален) для Telegram |
@@ -256,7 +260,7 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | GET   | `/api/products`           | нет            | каталог; фильтры `category`, `q`, `section`, `country` |
 | GET   | `/api/countries`          | нет            | страны для карусели «Абуз»       |
 | GET   | `/api/products/:slug`     | нет            | карточка товара                  |
-| GET   | `/api/banners`            | нет            | активные баннеры, не больше 2    |
+| GET   | `/api/banners`            | нет            | активные баннеры раздела `?section=` (по умолчанию `SHOP`); лимит из `BANNER_MAX_VISIBLE` |
 | GET   | `/api/me`                 | initData       | профиль: имя, роль, права, клубный статус, `createdAt`, ссылка на канал |
 | PATCH | `/api/me`                 | initData       | переименовать себя в магазине (`displayName`) |
 | GET   | `/api/orders`             | initData       | свои заказы (до 50)              |
@@ -389,9 +393,25 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 ### Разделы витрины и вариации товаров
 
 Товар принадлежит разделу: `SHOP` (обычный каталог) или `ABUSE`
-(«Всё для Абуза»). Поле на товаре, а не «магическая категория»: разделы
+(«Всё для абуза»). Поле на товаре, а не «магическая категория»: разделы
 фильтруются по разным осям — каталог по категориям, абуз по странам, — и
 категория с именем `abuse` всё равно попала бы в карусель каталога.
+
+**Витрина «Всё для абуза» сейчас показывает обычный каталог**, а не выдачу по
+странам: `AbuseScreen` монтирует тот же `CatalogBrowser`, что и главная, под
+своим квадратным баннером. Листинг родителей и карусель стран **выключены, а не
+удалены** — модель, агрегаты, фильтр `section=ABUSE&country=…` и вкладка
+управления разделом целы и покрыты тестами. Всё описанное ниже про вариации
+продолжает работать на уровне данных и API; возврат витрины — это снова
+отрисовать листинг. Единственный не используемый остаток — CSS-класс
+`.country-row`, помеченный в `styles.css`.
+
+Оба экрана рендерят один `CatalogBrowser` (`components/CatalogBrowser.tsx`), а не
+две копии. Карточка, которая правильно считает цену вариации в одной вкладке и
+неправильно в другой, — ровно тот баг, которого это избегает. Отличается только
+placement: чей баннер сверху, в какой рамке и под каким namespace хранится
+позиция прокрутки (`catalog:*` против `abuse:*`) — восстановленная позиция одной
+вкладки на другой читается как случайный прыжок.
 
 **Вариация — это дочерний `Product`** (`parentId`), а не отдельная таблица.
 Всё, что ниже по стеку, уже работает на уровне товара: склад `LicenseKey`,
@@ -458,6 +478,35 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
   «Абуз» заданы строкой, на которой нажали (`fixed`).
 - Каталог не показывает товары `ABUSE`: одна строка не должна редактироваться с
   двух экранов с разными правилами о размещении.
+- `BannerManager` монтируется в обе вкладки со своим `section`, поэтому постер
+  «Абуза» не редактируется из каталога и наоборот. Фильтрация идёт на клиенте по
+  уже приходящему `GET /api/banners/all`: один список — один запрос, сколько бы
+  вкладок его ни читало.
+
+### Промо-баннеры
+
+Баннер принадлежит разделу витрины: `Banner.section` — те же `SHOP` / `ABUSE`,
+что у товара, а не второй список названий экранов. Отдельный enum пришлось бы
+куда-то отображать, а такое отображение пишут дважды и одну копию ошибочно.
+
+- **Чтение всегда по разделу**: `GET /api/banners?section=…`, «все активные
+  баннеры» отсутствует намеренно. Экран, который тянет таблицу и фильтрует
+  локально, показывает промо каталога над «Всё для абуза» до тех пор, пока фильтр
+  не допишут.
+- Неизвестное значение параметра — **400**, а не «без фильтра»: опечатка иначе
+  выставила бы баннеры каталога над каждым экраном. Отсутствие параметра — это
+  `SHOP`: клиент, написанный до появления разделов, получает ровно то, что и раньше.
+- **Лимит на раздел** — `BANNER_MAX_VISIBLE` (`packages/shared/src/banner.ts`):
+  каталог 2, «Всё для абуза» 1. Живёт в чтении, а не в UI: полоса стоит над
+  товарами, и лишний баннер сдвигает их за первый экран. В контракте, потому что
+  число нужно обоим концам — API обрезает выдачу, админка честно пишет, сколько
+  из включённых баннеров реально видно.
+- **Форма кадра — свойство места, а не записи**: 1:1 задаётся контейнером
+  `.banner-strip--square` на экране «Абуза». Перенесённый между разделами баннер
+  обрамляется правильно без правки данных.
+- Показ переключается **из строки списка** в админке одним `PUT { isActive }`.
+  Скрывают баннер в спешке, и требовать для этого открыть редактор — плохой
+  обмен; частичная схема гарантирует, что остальные поля не тронуты.
 
 ### Медиа: стандарт и загрузка
 
@@ -470,7 +519,10 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | JPEG, PNG, WebP | 2 МБ | `IMAGE` |
 | GIF | 5 МБ | `ANIMATION` |
 
-Рекомендуемые размеры: баннер 1280×720 (16:9), карточка товара 800×800 (1:1).
+Рекомендуемые размеры: баннер каталога 1280×720 (16:9), баннер «Всё для абуза»
+1080×1080 (1:1), карточка товара 800×800 (1:1). Форма баннера — свойство места
+показа, а не записи, но советовать надо размер под ту рамку, в которой файл
+отрисуется: 16:9 в квадратном кадре обрезается сверху и снизу, унося текст макета.
 Пиксели **не** проверяются: измерить их значит декодировать файл, а декодер —
 куда большая поверхность атаки, чем проверка размера. Общая квота 200 МБ.
 
@@ -579,14 +631,14 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 
 ## 9. Тесты
 
-219 тестов, чистый `node:test` через `tsx`, без Jest/Vitest.
+224 теста, чистый `node:test` через `tsx`, без Jest/Vitest.
 
 | Файл                                     | Что проверяет                                     |
 | ---------------------------------------- | ------------------------------------------------- |
 | `apps/api/src/telegram/init-data.test.ts` | 14 тестов подписи: подмена, `signature`, срок, порядок |
 | `apps/api/src/server.test.ts`             | 27 e2e через `app.inject()` на временной SQLite    |
 | `apps/api/src/plugins/auth.test.ts`       | 15 тестов авторизации: роли, права, инвариант `ADMIN_TELEGRAM_IDS` |
-| `apps/api/src/routes/admin.test.ts`       | 102 теста управления: защита каждого роута, CRUD, баннеры, страны, загрузка медиа |
+| `apps/api/src/routes/admin.test.ts`       | 107 тестов управления: защита каждого роута, CRUD, баннеры по разделам и их лимиты, страны, загрузка медиа |
 | `apps/api/src/variations.test.ts`         | 14 тестов вариаций: карточка одна, агрегаты, фильтр по стране, родителя нельзя купить, заглушка без вариаций |
 | `apps/api/src/pricing.test.ts`            | 10 тестов клубного тарифа: направление `P / 0.95`, целые числа, округление на единицу |
 | `apps/api/src/telegram/membership.test.ts` | 9 тестов членства: статусы, кеш, сброс, сбои Bot API |
@@ -644,6 +696,8 @@ ProcessedUpdate — только update_id + createdAt (защита от пов
 | Каркас, шапка, вкладки             | `components/AppLayout.tsx`, `App.tsx`, `styles.css`                      |
 | Формы админки (товар, страна)      | `screens/admin/forms.tsx` → вкладка (`AdminCatalogScreen` / `AdminAbuseScreen`) |
 | Раздел «Абуз» в админке            | `screens/admin/AdminAbuseScreen.tsx`, `screens/admin/forms.tsx`           |
+| Промо-баннеры                      | `shared/src/banner.ts` → `services/banners.ts` → `routes/catalog.ts` → `components/BannerStrip.tsx` + `screens/admin/BannerManager.tsx` |
+| Выдача каталога на витрине         | `components/CatalogBrowser.tsx` (общий для `CatalogScreen` и `AbuseScreen`) |
 | Карточка товара на витрине         | `shared/src/catalog.ts` (`isAwaitingVariations`, `hasVariations`) → `components/ProductGrid.tsx` → `screens/ProductScreen.tsx` |
 | Клубный тариф, расчёт цены         | `packages/shared/src/pricing.ts` → `components/ui.tsx` → тест в `apps/api/src/pricing.test.ts` |
 | Клубный статус пользователя        | `shared/src/telegram.ts` (`isSubscribedChannel`) → `plugins/auth.ts` → `api/useViewer.ts` |

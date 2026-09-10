@@ -170,8 +170,11 @@ export const api = {
       (r) => r.categories,
     ),
 
-  listBanners: () =>
-    request<{ banners: Banner[] }>('/api/banners').then((r) => r.banners),
+  /** Active banners of one storefront section, already capped by the server. */
+  listBanners: (section: ProductSection) =>
+    request<{ banners: Banner[] }>(
+      `/api/banners?section=${encodeURIComponent(section)}`,
+    ).then((r) => r.banners),
 
   listCountries: () =>
     request<{ countries: Country[] }>('/api/countries').then((r) => r.countries),

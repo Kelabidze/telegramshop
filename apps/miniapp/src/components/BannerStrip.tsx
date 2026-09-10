@@ -3,27 +3,35 @@ import { bannerCategorySlug } from '@shop/shared';
 import { haptic, openExternal } from '../telegram/webapp.ts';
 
 /**
- * Promo strip above the catalog.
+ * Promo banners above a storefront section.
  *
  * Renders nothing at all when there are no banners — not a placeholder, not an
  * empty box. A reserved gap on the first screen would cost the products the
  * space the banners were supposed to earn.
  *
- * Two banners side by side, because that is what fits above the fold next to a
- * slimmer category row. The server already caps the list at two, so this
- * component does not have to decide what to drop.
+ * The server already caps the list per section, so this component does not have
+ * to decide what to drop.
  */
 export function BannerStrip({
   banners,
+  shape = 'strip',
   onOpenCategory,
 }: {
   banners: Banner[];
+  /**
+   * `strip` is the 16:9 poster above the catalog; `square` is the full-width 1:1
+   * frame «Всё для абуза» leads with. A prop rather than a second component:
+   * only the frame differs, and the tap behaviour must not.
+   */
+  shape?: 'strip' | 'square';
   onOpenCategory: (slug: string) => void;
 }) {
   if (banners.length === 0) return null;
 
   return (
-    <div className="banner-strip">
+    <div
+      className={`banner-strip${shape === 'square' ? ' banner-strip--square' : ''}`}
+    >
       {banners.map((banner) => (
         <BannerCard
           key={banner.id}
@@ -64,7 +72,7 @@ function BannerCard({
     </>
   );
 
-  // Without artwork the 16:9 frame would be mostly empty space.
+  // Without artwork the framed box would be mostly empty space.
   const shape = banner.imageUrl ? 'banner-card' : 'banner-card banner-card--plain';
 
   // A decorative banner is a plain div: rendering it as a button would promise a

@@ -324,15 +324,23 @@ select.input {
   cursor: pointer;
   color: var(--tg-hint-color);
   font: inherit;
-  /* Four tabs on a narrow phone: 10px keeps every label on one line. */
+  /* Four tabs on a narrow phone: 10px fits «Всё для абуза» in a quarter of a
+     320px screen. */
   font-size: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /*
+   * Wraps instead of truncating. A clipped label ("Всё для аб…") is a worse
+   * outcome than a two-line one: the bar simply gets taller, whereas an ellipsis
+   * hides which tab this is. `balance` keeps the two lines close in length rather
+   * than leaving one word alone underneath.
+   */
+  text-align: center;
+  line-height: 1.2;
+  text-wrap: balance;
 }
 
 /* ---------- country carousel ---------- */
@@ -341,6 +349,12 @@ select.input {
  * Horizontal scroller, unlike the category grid: countries are a long flat list
  * with no natural grouping, and a wrapping grid of twenty flags would push the
  * products off the screen entirely.
+ *
+ * `.country-row` currently has no consumer: «Всё для абуза» shows the ordinary
+ * catalog, so the carousel is not rendered. Kept deliberately, together with the
+ * data model and the staff tab behind it — the listing is switched off, not
+ * dropped. `.country-chip__flag` is still in use by the variation selector and
+ * the staff rows.
  */
 .country-row {
   display: flex;
@@ -713,6 +727,19 @@ select.input {
   font: inherit;
   text-align: left;
   overflow: hidden;
+}
+
+/*
+ * Square poster: «Всё для абуза» leads with one full-width 1:1 banner instead of
+ * a 16:9 strip. The override is on the container, not the card, so the shape is a
+ * property of where the banner is shown rather than of the record — the same row
+ * moved between sections gets framed correctly without an edit.
+ *
+ * `--plain` still wins: a text-only banner in a square box is mostly empty space
+ * whichever section it belongs to, so the collapse rule below stays in charge.
+ */
+.banner-strip--square .banner-card:not(.banner-card--plain) {
+  aspect-ratio: 1 / 1;
 }
 
 /* Without artwork the 16:9 box is mostly empty; collapse it to the text. */

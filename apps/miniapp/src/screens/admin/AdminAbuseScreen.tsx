@@ -4,17 +4,24 @@ import { formatMoney, type Country, type Product } from '@shop/shared';
 import { api } from '../../api/client.ts';
 import { EmptyState, ErrorState, Spinner } from '../../components/ui.tsx';
 import { haptic } from '../../telegram/webapp.ts';
+import { BannerManager } from './BannerManager.tsx';
 import { CountryForm, ProductForm } from './forms.tsx';
 
 /**
- * Staff screen for «Всё для Абуза».
+ * Staff screen for «Всё для абуза».
  *
- * A tab of its own rather than three more sections inside the catalog screen.
- * The section is edited along a different axis than the shop: a root product,
- * the countries hanging off it, and the list of countries themselves. Mixed into
- * the catalog these were a flat list of every product — roots and variations
- * side by side, with no way to see which country a root was still missing, which
- * is what made the panel unusable at two dozen roots.
+ * A tab of its own rather than more sections inside the catalog screen. The
+ * section is edited along a different axis than the shop: its banner, a root
+ * product, the countries hanging off it, and the list of countries themselves.
+ * Mixed into the catalog these were a flat list of every product — roots and
+ * variations side by side, with no way to see which country a root was still
+ * missing, which is what made the panel unusable at two dozen roots.
+ *
+ * The storefront currently shows this section as the ordinary catalog behind a
+ * square banner; the country listing is switched off there. This tab is
+ * unchanged by that and stays the place where roots, their country variations and
+ * the country list are maintained — the data has to be ready before the listing
+ * comes back, not after.
  *
  * The hierarchy is built here rather than requested: `GET /api/products/all`
  * already returns every product with its `parentId`, so grouping in memory costs
@@ -38,9 +45,21 @@ export function AdminAbuseScreen() {
     queryKey: ['staff-countries'],
     queryFn: () => api.listAllCountries(),
   });
+  /**
+   * Only for the banner's in-app link target.
+   *
+   * Categories are managed in the catalog tab; here they are just the list of
+   * places a banner tap can lead, which is the same list the storefront filters
+   * by now that this section shows the ordinary catalog.
+   */
+  const categoriesQuery = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.listCategories(),
+  });
 
   const products = productsQuery.data ?? [];
   const countries = countriesQuery.data ?? [];
+  const categories = categoriesQuery.data ?? [];
 
   /**
    * Roots of the section with their variations attached.
@@ -98,12 +117,18 @@ export function AdminAbuseScreen() {
 
   return (
     <div className="page">
-      <h1 className="title">Всё для Абуза</h1>
+      <h1 className="title">Всё для абуза</h1>
       <p className="subtitle">
-        Родительские товары, их страны и список стран раздела
+        Баннер раздела, родительские товары, их страны и список стран
       </p>
 
+      <BannerManager section="ABUSE" categories={categories} />
+
       <h2 className="section-title">Товары раздела</h2>
+      <p className="hint" style={{ marginTop: -8 }}>
+        Витрина раздела сейчас показывает обычный каталог: эта иерархия
+        поддерживается для возврата выдачи по странам и на витрине не видна.
+      </p>
 
       {roots.length === 0 ? (
         <EmptyState
@@ -305,10 +330,12 @@ function AbuseRootRow({
             {/*
               Zero variations is the state that breaks the storefront card, so it
               is named here instead of being shown as «0 стран» — the panel should
-              say what needs doing.
+              say what needs doing. Worth keeping while the listing is off: a root
+              left empty is what would render as «Ожидается поступление» the moment
+              it comes back.
             */}
             {variations.length === 0
-              ? 'нет стран — на витрине «Ожидается поступление»'
+              ? 'нет стран — карточка будет «Ожидается поступление»'
               : `${activeCount} из ${variations.length} активны`}
             {root.isActive ? '' : ' · скрыт'}
           </div>

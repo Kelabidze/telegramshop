@@ -219,6 +219,10 @@ async function seedAdmins(): Promise<void> {
  * left alone rather than updated: a banner edited through the API must not be
  * reset by a re-run. Same rule as `seed-banners.ts`, which does only this part
  * and is the one safe to run on a live server.
+ *
+ * `section` is spelled out rather than left to the column default: a banner is
+ * now tied to a screen, and a demo row that lands in the wrong one is a puzzle
+ * for whoever opens the admin panel first.
  */
 async function seedBanners(hasCategories: boolean): Promise<void> {
   const banners = [
@@ -227,12 +231,14 @@ async function seedBanners(hasCategories: boolean): Promise<void> {
       subtitle: 'Подборка недели',
       linkUrl: hasCategories ? 'category:courses' : null,
       sortOrder: 1,
+      section: 'SHOP',
     },
     {
       title: 'Клубный тариф 5%',
       subtitle: 'Подпишитесь на канал',
       linkUrl: config.clubChannel.url || null,
       sortOrder: 2,
+      section: 'SHOP',
     },
   ];
 

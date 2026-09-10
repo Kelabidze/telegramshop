@@ -21,8 +21,16 @@ interface DemoBanner {
   /** Resolved at run time: an in-app target only works if the category exists. */
   link: (context: { hasCourses: boolean }) => string | null;
   sortOrder: number;
+  /** Which storefront screen shows it: SHOP | ABUSE. */
+  section: string;
 }
 
+/**
+ * One per section, so a fresh install shows something in both places.
+ *
+ * «Всё для абуза» leads with a single square poster (`BANNER_MAX_VISIBLE`), which
+ * is why it gets one entry and the catalog two.
+ */
 const DEMO_BANNERS: DemoBanner[] = [
   {
     title: 'Курсы со скидкой',
@@ -31,6 +39,7 @@ const DEMO_BANNERS: DemoBanner[] = [
     // filters the catalog down to nothing.
     link: ({ hasCourses }) => (hasCourses ? 'category:courses' : null),
     sortOrder: 1,
+    section: 'SHOP',
   },
   {
     title: 'Клубный тариф 5%',
@@ -39,6 +48,16 @@ const DEMO_BANNERS: DemoBanner[] = [
     // button that opens a dead link.
     link: () => config.clubChannel.url || null,
     sortOrder: 2,
+    section: 'SHOP',
+  },
+  {
+    title: 'Всё для абуза',
+    subtitle: 'Загрузите свой баннер 1080×1080',
+    // Decorative on purpose: this row exists to show staff where the section's
+    // poster appears, and a demo link would send buyers somewhere arbitrary.
+    link: () => null,
+    sortOrder: 1,
+    section: 'ABUSE',
   },
 ];
 
@@ -72,6 +91,7 @@ async function main(): Promise<void> {
         subtitle: banner.subtitle,
         linkUrl: banner.link({ hasCourses }),
         sortOrder: banner.sortOrder,
+        section: banner.section,
         isActive: true,
       },
     });

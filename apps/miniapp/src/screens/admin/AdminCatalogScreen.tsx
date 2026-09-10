@@ -3,15 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   formatMoney,
   slugSchema,
-  type Banner,
   type Category,
   type FulfillmentKind,
   type Product,
 } from '@shop/shared';
 import { ApiError, api } from '../../api/client.ts';
-import { MediaPicker } from '../../components/MediaPicker.tsx';
 import { EmptyState, ErrorState, Spinner } from '../../components/ui.tsx';
 import { haptic, showConfirm } from '../../telegram/webapp.ts';
+import { BannerManager } from './BannerManager.tsx';
 import { Field, ProductForm } from './forms.tsx';
 
 const FULFILLMENT_LABEL: Record<FulfillmentKind, string> = {
@@ -21,16 +20,19 @@ const FULFILLMENT_LABEL: Record<FulfillmentKind, string> = {
 };
 
 /**
- * Staff catalog: categories, banners and shop products, including hidden ones.
+ * Staff catalog: categories, the catalog's banners and shop products, including
+ * hidden ones.
  *
  * Uses the staff endpoints, not the public catalog: `GET /api/products` hides
  * `isActive: false`, and an admin who cannot see a deactivated product cannot
  * bring it back.
  *
- * «Всё для Абуза» is deliberately absent — it has its own tab
+ * «Всё для абуза» is deliberately absent — it has its own tab
  * (`AdminAbuseScreen`), because it is edited by country rather than by category.
  * Its products are filtered out below so the same row is not editable from two
- * screens with different rules about placement.
+ * screens with different rules about placement. The same split applies to
+ * banners: `BannerManager` is scoped to `SHOP` here and to `ABUSE` there, so the
+ * poster of one section cannot be edited from the tab of the other.
  */
 export function AdminCatalogScreen() {
   const queryClient = useQueryClient();
@@ -40,7 +42,6 @@ export function AdminCatalogScreen() {
   const [editingProduct, setEditingProduct] = useState<Product | 'new' | null>(
     null,
   );
-  const [editingBanner, setEditingBanner] = useState<Banner | 'new' | null>(null);
 
   const categoriesQuery = useQuery({
     queryKey: ['categories'],
@@ -50,10 +51,6 @@ export function AdminCatalogScreen() {
     queryKey: ['staff-products'],
     queryFn: () => api.listAllProducts(),
   });
-  const bannersQuery = useQuery({
-    queryKey: ['staff-banners'],
-    queryFn: () => api.listAllBanners(),
-  });
   const countriesQuery = useQuery({
     queryKey: ['staff-countries'],
     queryFn: () => api.listAllCountries(),
@@ -61,7 +58,6 @@ export function AdminCatalogScreen() {
 
   const categories = categoriesQuery.data ?? [];
   const allProducts = productsQuery.data ?? [];
-  const banners = bannersQuery.data ?? [];
   // Only needed to keep a country label visible if an ABUSE product is somehow
   // opened here; the list itself is managed in the «Абуз» tab.
   const countries = countriesQuery.data ?? [];
@@ -141,64 +137,7 @@ export function AdminCatalogScreen() {
         />
       ) : null}
 
-      <h2 className="section-title">Баннеры</h2>
-      <div className="stack">
-        {banners.map((banner) => (
-          <div key={banner.id} className="card row">
-            {banner.imageUrl ? (
-              <img
-                src={banner.imageUrl}
-                alt=""
-                style={{
-                  width: 56,
-                  height: 32,
-                  objectFit: 'cover',
-                  borderRadius: 6,
-                }}
-              />
-            ) : null}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600 }}>{banner.title}</div>
-              <div className="hint">
-                {banner.isActive ? 'Показывается' : 'Скрыт'}
-              </div>
-            </div>
-            <button
-              type="button"
-              className="button button--ghost"
-              onClick={() => {
-                haptic('tap');
-                setEditingBanner(banner);
-              }}
-            >
-              Изменить
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="button button--secondary"
-          onClick={() => {
-            haptic('tap');
-            setEditingBanner('new');
-          }}
-        >
-          + Баннер
-        </button>
-      </div>
-
-      {editingBanner ? (
-        <BannerForm
-          banner={editingBanner === 'new' ? null : editingBanner}
-          categories={categories}
-          onClose={() => setEditingBanner(null)}
-          onSaved={() => {
-            void queryClient.invalidateQueries({ queryKey: ['banners'] });
-            void queryClient.invalidateQueries({ queryKey: ['staff-banners'] });
-            setEditingBanner(null);
-          }}
-        />
-      ) : null}
+      <BannerManager section="SHOP" categories={categories} />
 
       <h2 className="section-title">Товары</h2>
       {products.length === 0 ? (
@@ -391,148 +330,6 @@ function CategoryForm({
               void showConfirm(
                 'Удалить категорию? Товары останутся, но потеряют группировку.',
               ).then((ok) => {
-                if (ok) remove.mutate();
-              });
-            }}
-          >
-            Удалить
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function BannerForm({
-  banner,
-  categories,
-  onClose,
-  onSaved,
-}: {
-  banner: Banner | null;
-  categories: Category[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const isNew = banner === null;
-  const [title, setTitle] = useState(banner?.title ?? '');
-  const [subtitle, setSubtitle] = useState(banner?.subtitle ?? '');
-  const [imageUrl, setImageUrl] = useState<string | null>(banner?.imageUrl ?? null);
-  // `category:slug` keeps the tap inside the app; an https link leaves it.
-  const [linkUrl, setLinkUrl] = useState(banner?.linkUrl ?? '');
-  const [isActive, setIsActive] = useState(banner?.isActive ?? true);
-  const [error, setError] = useState<string | null>(null);
-
-  const mutation = useMutation({
-    mutationFn: async () => {
-      if (!title.trim()) throw new Error('Заголовок не может быть пустым.');
-      const fields = {
-        title: title.trim(),
-        subtitle: subtitle.trim() || null,
-        imageUrl,
-        linkUrl: linkUrl.trim() || null,
-        isActive,
-      };
-      if (isNew) return api.createBanner({ ...fields, sortOrder: 0 });
-      return api.updateBanner(banner.id, fields);
-    },
-    onSuccess: () => {
-      haptic('success');
-      onSaved();
-    },
-    onError: (err) => {
-      haptic('error');
-      setError(err instanceof ApiError ? err.message : (err as Error).message);
-    },
-  });
-
-  const remove = useMutation({
-    mutationFn: () => api.deleteBanner(banner!.id),
-    onSuccess: () => {
-      haptic('success');
-      onSaved();
-    },
-    onError: (err) => {
-      haptic('error');
-      setError(err instanceof ApiError ? err.message : 'Не удалось удалить.');
-    },
-  });
-
-  return (
-    <div className="card stack" style={{ marginTop: 12 }}>
-      <strong>{isNew ? 'Новый баннер' : 'Баннер'}</strong>
-      <Field label="Заголовок">
-        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
-      </Field>
-      <Field label="Подпись">
-        <input
-          className="input"
-          value={subtitle}
-          onChange={(e) => setSubtitle(e.target.value)}
-        />
-      </Field>
-      <MediaPicker value={imageUrl} onChange={setImageUrl} shape="banner" />
-      <Field label="Куда ведёт">
-        <select
-          className="input"
-          value={linkUrl.startsWith('category:') ? linkUrl : linkUrl ? 'external' : ''}
-          onChange={(e) => {
-            const next = e.target.value;
-            setLinkUrl(next === 'external' ? 'https://' : next);
-          }}
-        >
-          <option value="">Без перехода</option>
-          {categories.map((c) => (
-            <option key={c.id} value={`category:${c.slug}`}>
-              Категория: {c.title}
-            </option>
-          ))}
-          <option value="external">Внешняя ссылка…</option>
-        </select>
-      </Field>
-      {linkUrl && !linkUrl.startsWith('category:') ? (
-        <Field label="Ссылка (только https://)">
-          <input
-            className="input"
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
-            placeholder="https://t.me/…"
-          />
-        </Field>
-      ) : null}
-      <label className="row" style={{ gap: 8 }}>
-        <input
-          type="checkbox"
-          checked={isActive}
-          onChange={(e) => setIsActive(e.target.checked)}
-        />
-        Показывать в магазине
-      </label>
-      {error ? (
-        <p className="hint" style={{ color: 'var(--tg-destructive-text-color)', margin: 0 }}>
-          {error}
-        </p>
-      ) : null}
-      <div className="row">
-        <button
-          type="button"
-          className="button"
-          disabled={mutation.isPending}
-          onClick={() => mutation.mutate()}
-        >
-          Сохранить
-        </button>
-        <button type="button" className="button button--secondary" onClick={onClose}>
-          Отмена
-        </button>
-        <div className="spacer" />
-        {!isNew ? (
-          <button
-            type="button"
-            className="button button--danger"
-            disabled={remove.isPending}
-            onClick={() => {
-              void showConfirm('Удалить баннер?').then((ok) => {
                 if (ok) remove.mutate();
               });
             }}

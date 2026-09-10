@@ -89,11 +89,21 @@ export const MEDIA_MAX_BYTES = Math.max(
  * Recommended pixel dimensions. Advisory, not enforced: measuring an image
  * server-side would mean decoding it, and a decoder is a much larger attack
  * surface than a size check.
+ *
+ * Two banner shapes, because the two storefront sections frame their artwork
+ * differently: the catalog strip is 16:9, «Всё для абуза» is a full-width 1:1
+ * poster. The frame is CSS, but the advertised size has to match it — a 16:9
+ * upload in a square frame gets cropped top and bottom, which is how a designed
+ * banner loses its text.
  */
 export const MEDIA_DIMENSIONS = {
   banner: { width: 1280, height: 720, ratio: '16:9' },
+  bannerSquare: { width: 1080, height: 1080, ratio: '1:1' },
   product: { width: 800, height: 800, ratio: '1:1' },
 } as const;
+
+/** Which set of recommended dimensions a picker should advertise. */
+export type MediaShape = keyof typeof MEDIA_DIMENSIONS;
 
 /** Total bytes all uploads may occupy. The VPS disk is small and shared. */
 export const MEDIA_TOTAL_QUOTA_BYTES = 200 * MB;
