@@ -116,7 +116,9 @@ curl -fsSL https://raw.githubusercontent.com/Kelabidze/telegramshop/main/deploy/
   для staging конфига реверс-прокси;
 - клонирует репозиторий **от имени `shop`** — на сервере из него нужны только
   `deploy/*` и конфиги, код приезжает артефактом;
-- генерирует `TELEGRAM_WEBHOOK_SECRET` и создаёт `shared/api.env`;
+- генерирует `TELEGRAM_WEBHOOK_SECRET` и создаёт `shared/api.env`; на уже
+  настроенном сервере добавляет только отсутствующий `NODE_ENV=production`, не
+  перезаписывая секреты или другие локальные настройки;
 - ставит Caddyfile (через тот же `sync-caddy.sh`, что работает при деплое) и
   systemd-юнит, подставляя домен;
 - выдаёт `shop` право на `systemctl restart|status|is-active shop-api` и на

@@ -666,6 +666,7 @@ placement: чей баннер сверху, в какой рамке и под 
 | Переменная                  | Смысл                                                |
 | --------------------------- | ---------------------------------------------------- |
 | `DATABASE_URL`              | путь к SQLite; относительный — от `apps/api`          |
+| `NODE_ENV`                  | `production` включает обязательные production-проверки |
 | `TELEGRAM_BOT_TOKEN`        | ключ подписи initData; обязателен в prod              |
 | `TELEGRAM_WEBHOOK_SECRET`   | проверка вебхука; обязателен в prod                   |
 | `TELEGRAM_PROVIDER_TOKEN`   | только для `PAYMENT_PROVIDER="provider"`              |

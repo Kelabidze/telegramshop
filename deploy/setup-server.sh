@@ -185,7 +185,16 @@ EOF
   chmod 600 "$ENV_FILE"
   echo "    created ${ENV_FILE} (webhook secret generated)"
 else
-  echo "    ${ENV_FILE} already exists, left untouched"
+  # Existing installations predate configuration additions. Add only this safe,
+  # required production default; never rewrite values or secrets managed on-host.
+  if ! grep -qE '^[[:space:]]*(export[[:space:]]+)?NODE_ENV=' "$ENV_FILE"; then
+    printf '\n# Added by setup-server.sh: enables production safety checks.\nNODE_ENV=production\n' >> "$ENV_FILE"
+    chown "$APP_USER:$APP_USER" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    echo "    added NODE_ENV=production to existing ${ENV_FILE}"
+  else
+    echo "    ${ENV_FILE} already exists, left untouched"
+  fi
 fi
 
 echo "==> Configuring Caddy for ${DOMAIN}"
