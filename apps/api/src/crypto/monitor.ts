@@ -2,7 +2,7 @@ import { config } from '../config.js';
 import { prisma } from '../db.js';
 import { normalizeAddress } from './addresses.js';
 import { weiToString } from './amounts.js';
-import { getRpcClient, type BscRpcClient } from './rpc.js';
+import { RpcError, getRpcClient, type BscRpcClient } from './rpc.js';
 import { parseTransferLog, transferToAddressesFilter } from './usdt.js';
 import { expireStaleIntents, reconcileIntent } from '../services/crypto-payments.js';
 
@@ -252,6 +252,65 @@ async function settleSeenTransactions(
   return { confirmed, orphaned, touchedIntents };
 }
 
+/**
+ * Reads one block range, halving it if an endpoint refuses the size.
+ *
+ * Public BSC endpoints cap `eth_getLogs` differently and inconsistently — a probe
+ * against mainnet answered "limit exceeded" for a range the configured window
+ * allowed. Giving up on such a range would stall the cursor behind it forever, and
+ * widening the window is not something the operator should have to tune per
+ * provider. So the range is split and retried, and the cursor advances only over
+ * the part actually covered.
+ *
+ * Returns how far it got: on partial success the caller records that height, and
+ * the next pass resumes from there rather than re-reading or skipping.
+ */
+async function scanRange(
+  rpc: BscRpcClient,
+  addresses: string[],
+  from: bigint,
+  to: bigint,
+): Promise<{
+  parsed: ReturnType<typeof parseTransferLog>[];
+  covered: bigint;
+  requests: number;
+}> {
+  const parsed: ReturnType<typeof parseTransferLog>[] = [];
+  let cursor = from;
+  let requests = 0;
+  let span = to - from + 1n;
+
+  while (cursor <= to) {
+    const end = cursor + span - 1n > to ? to : cursor + span - 1n;
+    try {
+      const logs = await rpc.getLogs(
+        transferToAddressesFilter(addresses, cursor, end),
+      );
+      requests += 1;
+      for (const log of logs) parsed.push(parseTransferLog(log));
+      cursor = end + 1n;
+      continue;
+    } catch (error) {
+      requests += 1;
+      const tooWide =
+        error instanceof RpcError &&
+        error.retryable &&
+        span > 1n;
+      if (!tooWide) {
+        // Either not a size problem, or already down to a single block. Report how
+        // far we genuinely got; `cursor - 1n` may be `from - 1n`, which correctly
+        // means "nothing new was covered".
+        if (cursor === from) throw error;
+        return { parsed, covered: cursor - 1n, requests };
+      }
+      // Halve and retry the same starting point.
+      span = span / 2n;
+    }
+  }
+
+  return { parsed, covered: to, requests };
+}
+
 /** One full pass. Callers must serialise; `startMonitor` does. */
 export async function runMonitorPass(): Promise<MonitorPassResult> {
   const result = emptyResult();
@@ -336,21 +395,20 @@ export async function runMonitorPass(): Promise<MonitorPassResult> {
     // passes rather than issuing one enormous request that the endpoint refuses.
     const to = bucket.from + window - 1n > head ? head : bucket.from + window - 1n;
 
-    const logs = await rpc.getLogs(
-      transferToAddressesFilter(bucket.addresses, bucket.from, to),
+    const scanned = await scanRange(rpc, bucket.addresses, bucket.from, to);
+    result.rangesScanned += scanned.requests;
+    result.transfersFound += scanned.parsed.filter((p) => p !== null).length;
+    result.transfersInserted += await recordTransfers(
+      scanned.parsed,
+      walletsByAddress,
     );
-    result.rangesScanned += 1;
 
-    const parsed = logs.map(parseTransferLog);
-    const found = parsed.filter((p) => p !== null).length;
-    result.transfersFound += found;
-    result.transfersInserted += await recordTransfers(parsed, walletsByAddress);
-
-    // Cursor advances only now, after the range's logs are recorded. Doing it
-    // before would turn any failure above into a permanently skipped range.
+    // Cursor advances only now, after the range's logs are recorded — and only to
+    // the height actually covered. Advancing before, or past an unscanned gap,
+    // would turn a failure into a permanently skipped range.
     await prisma.depositWallet.updateMany({
       where: { id: { in: bucket.ids } },
-      data: { lastScannedBlock: to },
+      data: { lastScannedBlock: scanned.covered },
     });
   }
 

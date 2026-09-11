@@ -323,14 +323,14 @@ describe('RPC failover', () => {
     assert.equal(good.hits(), 1);
   });
 
-  it('does not retry a JSON-RPC error on the next endpoint', async () => {
-    // A node-level refusal means the request itself is wrong: asking a second
-    // node the same malformed question wastes a round trip and hides the cause.
+  it('does not retry a refusal about the request itself', async () => {
+    // "No such method" is about the request, not the node: every endpoint will say
+    // the same thing, so retrying only spends a round trip and buries the cause.
     const refusing = await startServer((body) => ({
       payload: {
         jsonrpc: '2.0',
         id: body.id,
-        error: { code: -32000, message: 'query returned more than 10000 results' },
+        error: { code: -32601, message: 'the method eth_getLogs does not exist' },
       },
     }));
     const other = await startServer((body) => ({
@@ -340,9 +340,70 @@ describe('RPC failover', () => {
 
     await assert.rejects(
       () => client.getLogs({ address: '0x1', fromBlock: 1n, toBlock: 2n, topics: [] }),
-      /more than 10000 results/,
+      /does not exist/,
     );
     assert.equal(other.hits(), 0, 'must not have retried elsewhere');
+  });
+
+  it('DOES retry a capacity refusal on the next endpoint', async () => {
+    /*
+     * Found by probing mainnet: bsc-dataseed answers `-32005 limit exceeded` for a
+     * range it will not serve. That is the node describing its own cap, not the
+     * request being wrong — and public BSC endpoints have very different caps, so a
+     * fallback may answer fine. Treating it as final meant one throttled endpoint
+     * failed a whole scan pass while a healthy fallback sat unused.
+     */
+    const throttled = await startServer((body) => ({
+      payload: {
+        jsonrpc: '2.0',
+        id: body.id,
+        error: { code: -32005, message: 'limit exceeded' },
+      },
+    }));
+    const healthy = await startServer((body) => ({
+      payload: { jsonrpc: '2.0', id: body.id, result: [] },
+    }));
+    const client = new rpc.BscRpcClient([throttled.url, healthy.url], 2_000);
+
+    const logs = await client.getLogs({
+      address: '0x1',
+      fromBlock: 1n,
+      toBlock: 2n,
+      topics: [],
+    });
+    assert.deepEqual(logs, []);
+    assert.equal(healthy.hits(), 1, 'the fallback must have been tried');
+  });
+
+  it('classifies capacity refusals by message as well as by code', async () => {
+    // Providers are inconsistent: the same condition arrives as -32005, -32000 or
+    // -32603 with only the text to distinguish it.
+    for (const message of [
+      'query returned more than 10000 results',
+      'exceed maximum block range: 5000',
+      'Too Many Requests',
+      'the node is busy, try again',
+    ]) {
+      const throttled = await startServer((body) => ({
+        payload: {
+          jsonrpc: '2.0',
+          id: body.id,
+          error: { code: -32000, message },
+        },
+      }));
+      const healthy = await startServer((body) => ({
+        payload: { jsonrpc: '2.0', id: body.id, result: ['ok'] },
+      }));
+      const client = new rpc.BscRpcClient([throttled.url, healthy.url], 2_000);
+
+      const result = await client.getLogs({
+        address: '0x1',
+        fromBlock: 1n,
+        toBlock: 2n,
+        topics: [],
+      });
+      assert.deepEqual(result, ['ok'], `did not fail over for: ${message}`);
+    }
   });
 
   it('throws once every endpoint has failed', async () => {

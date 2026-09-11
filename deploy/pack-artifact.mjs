@@ -57,6 +57,7 @@ const REQUIRED_BUILD_OUTPUTS = [
   'apps/api/dist/cli/seed-banners.js',
   'apps/api/dist/cli/seed-abuse.js',
   'apps/api/dist/cli/webhook.js',
+  'apps/api/dist/cli/crypto-check.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',
 ];

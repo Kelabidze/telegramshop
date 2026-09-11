@@ -50,12 +50,58 @@ export interface GetLogsFilter {
 
 export class RpcError extends Error {
   readonly endpoint: string;
+  /** JSON-RPC error code, when the node supplied one. */
+  readonly code: number | null;
+  /**
+   * Whether another endpoint is worth asking.
+   *
+   * The distinction is capacity versus correctness. A node saying "you are over
+   * your limit" or "that range returns too many results" is describing *its own*
+   * constraints, and a different provider may well answer — public BSC endpoints
+   * have quite different caps. A node saying "no such method" or "invalid params"
+   * is describing the request, and every node will say the same thing, so retrying
+   * only spends a round trip and buries the real cause.
+   *
+   * Getting this wrong in the strict direction is what the mainnet probe caught:
+   * treating a rate-limit refusal as final meant one throttled endpoint failed a
+   * scan pass while a healthy fallback sat unused.
+   */
+  readonly retryable: boolean;
 
-  constructor(message: string, endpoint: string) {
+  constructor(message: string, endpoint: string, code: number | null) {
     super(message);
     this.name = 'RpcError';
     this.endpoint = endpoint;
+    this.code = code;
+    this.retryable = isCapacityError(message, code);
   }
+}
+
+/**
+ * Capacity-style refusals, which a different endpoint may not share.
+ *
+ * Matched on both code and text because BSC providers are inconsistent: the same
+ * condition arrives as -32005, -32000, or plain -32603 with a descriptive message.
+ */
+function isCapacityError(message: string, code: number | null): boolean {
+  if (code === -32005) return true; // limit exceeded / rate limited
+  if (code === 429) return true;
+  const text = message.toLowerCase();
+  return (
+    text.includes('limit exceeded') ||
+    text.includes('rate limit') ||
+    text.includes('too many requests') ||
+    // "query returned more than 10000 results" and "too many results" are the
+    // same condition worded by different providers.
+    text.includes('results') ||
+    text.includes('query timeout') ||
+    text.includes('timeout') ||
+    // "exceed maximum block range", "block range is too large", "range too wide".
+    text.includes('block range') ||
+    text.includes('capacity') ||
+    text.includes('busy') ||
+    text.includes('try again')
+  );
 }
 
 /** Hex quantity (`0x1a`) -> bigint. Rejects anything else. */
@@ -114,10 +160,11 @@ export class BscRpcClient {
   /**
    * One JSON-RPC call, tried against every endpoint in turn.
    *
-   * A JSON-RPC *error object* is not retried on the next endpoint: it means the
-   * node understood the request and refused it, so asking a second node the same
-   * malformed question wastes a round trip and hides the real problem. Transport
-   * failures and malformed responses do fail over.
+   * Transport failures always fail over. A JSON-RPC error object fails over only
+   * when it is a capacity refusal (rate limit, range too large): those are the
+   * node's own limits and a different provider may not share them. A refusal about
+   * the request itself — unknown method, invalid params — is final, because every
+   * node will answer identically and retrying just hides the cause.
    */
   private async call<T>(method: string, params: unknown[]): Promise<T> {
     this.stats.calls += 1;
@@ -139,11 +186,22 @@ export class BscRpcClient {
         this.stats.failures += 1;
         this.stats.lastError = `${method}: ${err.message}`;
         this.stats.lastErrorAt = new Date().toISOString();
-        if (err instanceof RpcError) {
-          // Node-level refusal: same answer everywhere, so stop here.
+        if (err instanceof RpcError && !err.retryable) {
+          // The request itself is the problem. Same answer everywhere.
           throw err;
         }
       }
+    }
+
+    /**
+     * Every endpoint failed. When the last word was a capacity refusal, rethrow it
+     * as such rather than flattening it into a generic Error: the caller decides
+     * whether to narrow the request and retry, and it cannot make that decision if
+     * "the range was too wide for everyone" is indistinguishable from "the network
+     * is down".
+     */
+    if (lastError instanceof RpcError && lastError.retryable) {
+      throw lastError;
     }
 
     throw new Error(
@@ -193,6 +251,7 @@ export class BscRpcClient {
         throw new RpcError(
           `${body.error.message ?? 'unknown RPC error'} (code ${body.error.code ?? '?'})`,
           hostOf(endpoint),
+          body.error.code ?? null,
         );
       }
       if (body.result === undefined) {
