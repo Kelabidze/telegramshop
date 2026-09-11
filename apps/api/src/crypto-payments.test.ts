@@ -380,13 +380,44 @@ describe('USDT checkout: order creation', () => {
     assert.equal(response.statusCode, 404);
   });
 
-  it('requires authentication', async () => {
+  it('requires authentication on every payment route', async () => {
+    const { order } = await placeOrder('USDT');
+
+    // All three, not just the read: an unauthenticated POST that fell through to
+    // the service would issue an address on somebody else's order.
+    for (const route of [
+      { method: 'GET' as const, url: `/api/orders/${order.id}/crypto-payment` },
+      { method: 'POST' as const, url: `/api/orders/${order.id}/crypto-payment` },
+      {
+        method: 'POST' as const,
+        url: `/api/orders/${order.id}/crypto-payment/cancel`,
+      },
+    ]) {
+      const response = await app.inject({
+        ...route,
+        // A body on the POSTs: Fastify rejects an empty JSON body with a 400/500
+        // before the auth hook runs, which would make this assertion pass for the
+        // wrong reason.
+        ...(route.method === 'POST' ? { payload: {} } : {}),
+      });
+      assert.equal(
+        response.statusCode,
+        401,
+        `${route.method} ${route.url} answered ${response.statusCode}`,
+      );
+    }
+  });
+
+  it("refuses to issue an address on another buyer's order", async () => {
     const { order } = await placeOrder('USDT');
     const response = await app.inject({
-      method: 'GET',
+      method: 'POST',
       url: `/api/orders/${order.id}/crypto-payment`,
+      headers: { authorization: authHeader(BUYER_ID + 7) },
+      payload: {},
     });
-    assert.equal(response.statusCode, 401);
+    // 404, not 403: the existence of someone else's order is not confirmed.
+    assert.equal(response.statusCode, 404);
   });
 });
 
