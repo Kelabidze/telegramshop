@@ -1,5 +1,5 @@
-/*
- * OCHKISK ZONE — brand visual layer.
+﻿/*
+ * OCHKISK ZONE вЂ” brand visual layer.
  *
  * Two colour systems live here on purpose.
  *
@@ -60,7 +60,7 @@
   /*
    * Text on a magenta fill is dark, not white: #E83DFF against white is 3.2:1,
    * below AA, while against the page black it is 6.1:1. That decision belongs
-   * in a variable because it applies to every magenta surface — the primary
+   * in a variable because it applies to every magenta surface вЂ” the primary
    * button, the native MainButton, selected chips.
    */
   --zone-on-magenta: #08070c;
@@ -76,7 +76,7 @@
    * start, and the rendered result would be this same stack anyway. Wiring one
    * up is two edits: add the `@font-face` block (subset with Cyrillic,
    * `font-display: swap`, file under `src/assets/fonts/`) and change this line.
-   * The body stack stays system on purpose — zero bytes and the best rendering
+   * The body stack stays system on purpose вЂ” zero bytes and the best rendering
    * on both iOS and Android.
    */
   --zone-font-display: var(--zone-font-body);
@@ -175,7 +175,7 @@ body {
 
 .hint {
   /*
-   * Secondary, not muted. `--zone-text-muted` is 3.6:1 on the page background —
+   * Secondary, not muted. `--zone-text-muted` is 3.6:1 on the page background вЂ”
    * fine for a disabled control or an inactive icon, too low for 13px prose.
    */
   color: var(--zone-text-secondary);
@@ -211,7 +211,7 @@ body {
 
 /*
  * Every surface in the app is this shape: a graphite fill and one hairline
- * border. The border is what separates panels on a near-black background —
+ * border. The border is what separates panels on a near-black background вЂ”
  * without it the two-step difference between #08070C and #15131C disappears on
  * a phone in daylight. Deliberately no blur and no translucency: this is dark
  * premium, not glassmorphism.
@@ -479,7 +479,7 @@ select.input {
   cursor: pointer;
   color: var(--zone-text-secondary);
   font: inherit;
-  /* Four tabs on a narrow phone: 10px fits «Всё для абуза» in a quarter of a
+  /* Four tabs on a narrow phone: 10px fits В«Р’СЃС‘ РґР»СЏ Р°Р±СѓР·Р°В» in a quarter of a
      320px screen. */
   font-size: 10px;
   display: flex;
@@ -488,7 +488,7 @@ select.input {
   gap: 3px;
   overflow: hidden;
   /*
-   * Wraps instead of truncating. A clipped label ("Всё для аб…") is a worse
+   * Wraps instead of truncating. A clipped label ("Р’СЃС‘ РґР»СЏ Р°Р±вЂ¦") is a worse
    * outcome than a two-line one: the bar simply gets taller, whereas an ellipsis
    * hides which tab this is. `balance` keeps the two lines close in length rather
    * than leaving one word alone underneath.
@@ -578,7 +578,7 @@ select.input {
 
 /*
  * Selected: a magenta ring plus the faintest wash of brand glow. This is one of
- * the few places glow is allowed — it marks a single choice the user just made,
+ * the few places glow is allowed вЂ” it marks a single choice the user just made,
  * which is exactly the local, momentary use the accent is budgeted for.
  */
 .variation-option[aria-pressed='true'] {
@@ -608,7 +608,7 @@ select.input {
 
 /*
  * The icon carries the active state, the label carries legibility. Muted grey
- * is 3.6:1 — acceptable for a 20px glyph, not for a 10px caption, which is why
+ * is 3.6:1 вЂ” acceptable for a 20px glyph, not for a 10px caption, which is why
  * the two are coloured separately rather than inheriting one value.
  */
 .tab-bar__icon {
@@ -860,7 +860,7 @@ select.input {
 
 /*
  * Brand signature at the end of the profile, the one place a wordmark does not
- * compete with anything. Hidden until the asset exists — an empty box with a
+ * compete with anything. Hidden until the asset exists вЂ” an empty box with a
  * caption would be worse than nothing.
  */
 .brand-signature {
@@ -872,7 +872,7 @@ select.input {
 
 /*
  * Type until the wordmark exists. Letterspaced small caps rather than invented
- * graphics: it is honest about being text, and it will not have to be undone —
+ * graphics: it is honest about being text, and it will not have to be undone вЂ”
  * the wrapper takes an <img class="brand-signature__mark"> in its place.
  */
 .brand-signature__wordmark {
@@ -995,9 +995,9 @@ select.input {
 }
 
 /*
- * Square poster: «Всё для абуза» leads with one full-width 1:1 banner instead of
+ * Square poster: В«Р’СЃС‘ РґР»СЏ Р°Р±СѓР·Р°В» leads with one full-width 1:1 banner instead of
  * a 16:9 strip. The override is on the container, not the card, so the shape is a
- * property of where the banner is shown rather than of the record — the same row
+ * property of where the banner is shown rather than of the record вЂ” the same row
  * moved between sections gets framed correctly without an edit.
  *
  * `--plain` still wins: a text-only banner in a square box is mostly empty space
@@ -1130,7 +1130,7 @@ select.input {
 /*
  * Last-resort product artwork: no uploaded image and no emoji on the record.
  *
- * Deliberately a quiet frame rather than invented brand graphics — a placeholder
+ * Deliberately a quiet frame rather than invented brand graphics вЂ” a placeholder
  * that tries to look designed is the thing that makes a catalogue look like a
  * template. A faint violet wash separates it from a card whose image simply
  * failed to load, and the glyph inside is a neutral media mark.
@@ -1574,4 +1574,189 @@ select.input {
   font-size: 13px;
   align-self: flex-start;
   margin-top: 4px;
+}
+
+/* ---------- Payment method choice ---------- */
+
+.pay-methods {
+  display: grid;
+  gap: 10px;
+}
+
+.pay-method {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 14px;
+  text-align: left;
+  background: var(--zone-surface-2);
+  border: 1px solid var(--zone-border);
+  border-radius: var(--radius);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color var(--zone-transition),
+    background-color var(--zone-transition);
+}
+
+/* The selected rail is marked by its border and a tint, not by a tick glyph:
+   the whole card is the control, so the whole card should read as chosen. */
+.pay-method[aria-pressed='true'] {
+  border-color: var(--zone-magenta);
+  background: var(--zone-magenta-glow);
+}
+
+.pay-method:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pay-method__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pay-method__title {
+  font-weight: 600;
+  color: var(--zone-text);
+}
+
+.pay-method__amount {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--zone-text);
+}
+
+.pay-method__caption {
+  font-size: 12px;
+  color: var(--zone-text-secondary);
+}
+
+/* ---------- On-chain payment screen ---------- */
+
+.pay-status {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--zone-border);
+  background: var(--zone-surface-2);
+}
+
+.pay-status__label {
+  font-weight: 600;
+  color: var(--zone-text);
+}
+
+.pay-status__hint {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--zone-text-secondary);
+}
+
+/* Status colour carries the meaning, so it is a left bar rather than a full
+   wash: a solid red panel behind "time expired" reads as an app error. */
+.pay-status--wait {
+  box-shadow: inset 3px 0 0 var(--zone-violet);
+}
+
+.pay-status--progress {
+  box-shadow: inset 3px 0 0 var(--zone-magenta);
+}
+
+.pay-status--good {
+  box-shadow: inset 3px 0 0 var(--zone-success);
+}
+
+.pay-status--warn {
+  box-shadow: inset 3px 0 0 var(--zone-warning);
+}
+
+.pay-status--bad {
+  box-shadow: inset 3px 0 0 var(--zone-error);
+}
+
+.pay-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pay-row__title {
+  font-size: 13px;
+  color: var(--zone-text-secondary);
+}
+
+.pay-row__value {
+  margin-left: auto;
+  font-weight: 500;
+  color: var(--zone-text);
+}
+
+.pay-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pay-copy__title {
+  font-size: 13px;
+  color: var(--zone-text-secondary);
+}
+
+/* The value IS the copy button: a separate icon next to a long address is a
+   small target beside a big one that does nothing. */
+.pay-copy__value {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  background: var(--zone-surface);
+  border: 1px solid var(--zone-border);
+  border-radius: 8px;
+  color: var(--zone-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pay-copy__value--mono .pay-copy__text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.pay-copy__text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  /* An address must be readable in full: truncation would hide exactly the
+     characters a buyer needs to verify against their wallet. */
+  word-break: break-all;
+}
+
+.pay-copy__action {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--zone-magenta);
+}
+
+.pay-warnings {
+  margin: 14px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--zone-text-secondary);
+}
+
+.pay-tx__hash {
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--zone-text-muted);
 }

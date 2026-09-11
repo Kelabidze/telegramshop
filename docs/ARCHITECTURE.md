@@ -68,6 +68,14 @@ apps/api/
     telegram/init-data.ts    HMAC-проверка подписи Telegram
     telegram/membership.ts   getChatMember + in-memory кеш членства в канале
     telegram/onboarding.ts   /start и «Я подписался!»: тексты, клавиатуры, опрос
+    telegram/delivery.ts     текст сообщения о выдаче + отправка вне вебхука
+    crypto/amounts.ts        USDT: центы <-> wei на BigInt, единственный мост
+    crypto/rpc.ts            BSC JSON-RPC, failover на КАЖДОМ вызове
+    crypto/addresses.ts      вывод адресов из watch-only xpub (подписи нет)
+    crypto/usdt.ts           фильтр и парсинг Transfer-логов BEP20
+    crypto/monitor.ts        наблюдатель за сетью: курсор, финальность, reorg
+    services/crypto-payments.ts  РЕШЕНИЯ по платежам: reconcile -> markOrderPaid
+    routes/crypto-payments.ts    POST/GET/cancel платежа заказа
     generated/prisma/        вывод prisma generate — НЕ РЕДАКТИРОВАТЬ
 
 apps/miniapp/src/
@@ -78,8 +86,10 @@ apps/miniapp/src/
   hooks/useScrollRestoration.ts  запоминает позицию прокрутки на экран
   screens/                   HomeScreen (главная), CatalogScreen (полный каталог),
                              AbuseScreen, ProductScreen, CartScreen,
+                             CryptoPaymentScreen (ожидание оплаты USDT),
                              OrdersScreen, ProfileScreen
   components/home/           секции главной: конфиг порядка + по компоненту на секцию
+  components/PaymentMethodPicker.tsx  выбор Stars / USDT в корзине
   screens/admin/             AdminCatalogScreen, AdminAbuseScreen,
                              AdminUsersScreen, AdminFinanceScreen — режим управления
   screens/admin/forms.tsx    формы товара и страны, общие для вкладок каталога и «Абуза»
@@ -148,6 +158,95 @@ Mini App                     API                          Telegram
   без Telegram и без вебхука. Удобно для проверки стенда.
 - `update_id` каждого апдейта пишется в `ProcessedUpdate` **до** передачи
   в grammY — повторная доставка отбрасывается на входе.
+
+### 3.1. Цена: одна база в рублях
+
+У товара **одна** цена — `Product.amountMinor` в копейках (`currency = RUB`).
+То, чем платят, выводится из неё:
+
+```
+Product.amountMinor (копейки, клубный тариф)
+        │
+        ├─ effectiveUnitMinor()   клубный / стандартный тариф — как было
+        │
+        ├─ starsForRubMinor()      ┐ округление ВВЕРХ, одна функция
+        └─ usdtMinorForRubMinor()  ┘ packages/shared/src/base-price.ts
+```
+
+Три независимых поля цены не заводим: их пришлось бы менять втроём синхронно, и
+забытое оказалось бы тем, по которому покупают.
+
+Округление — **вверх**, и это не вкусовщина. На он-chain пути покупатель вводит
+показанную сумму в кошелёк, а монитор сверяет её точно; любое округление, не
+применённое одинаково с обеих сторон, превращается в `UNDERPAID` у человека,
+заплатившего ровно столько, сколько попросили. Максимум переплаты — одна минорная
+единица. Тест в `crypto/pricing.test.ts` проверяет именно это свойство:
+показанная строка, разобранная обратно, равна `expectedAmountWei`.
+
+Курсы (`USDT_RUB_RATE`, `STAR_RUB_MINOR_RATE`) — конфигурация, внешних источников
+курса нет. При создании заказа они **снапшотятся**: `Order.totalBaseRubMinor`,
+`Order.rateRubMinorPerUnit`, `OrderLine.unitBaseRubMinor`. Изменение курса не
+переписывает заказ, который уже создан.
+
+Конвертация — на единицу, потом умножение на количество. Наоборот нельзя:
+Telegram отклоняет инвойс, суммы позиций которого не складываются в total.
+
+### 3.2. Поток оплаты USDT (BEP20)
+
+```
+Order(PENDING, currency=USDT)
+   │
+   ├─ CryptoPaymentIntent   expectedAmountWei + expiresAt + unique(orderId)
+   └─ DepositWallet         персональный адрес, unique(derivationIndex)
+        │
+        ▼  покупатель отправляет USDT
+   ┌─────────────────────────────────────────┐
+   │ crypto/monitor.ts — ТОЛЬКО НАБЛЮДАЕТ    │
+   │  eth_blockNumber → eth_getLogs(Transfer)│
+   │  → CryptoTransaction(SEEN)              │
+   │     unique(txHash, logIndex)            │
+   │  → финальность по тегу `finalized`      │
+   │  → сверка blockHash + receipt (reorg)   │
+   │  → CryptoTransaction(CONFIRMED)         │
+   └─────────────────────────────────────────┘
+        │  «я видел перевод X на адрес Y в блоке N»
+        ▼
+   services/crypto-payments.ts — ЕДИНСТВЕННЫЙ, КТО РЕШАЕТ
+        Σ CONFIRMED == expected → CONFIRMED  → markOrderPaid()
+        Σ  >  expected          → OVERPAID   → markOrderPaid() + фиксация излишка
+        0 < Σ < expected         → UNDERPAID  (открыт до expiresAt, доплата суммируется)
+        ничего, дедлайн прошёл   → EXPIRED    (заказ остаётся PENDING)
+        ▼
+   markOrderPaid({kind:'crypto'}) → claimLicenseKey → deliveredPayload → PAID
+        ▼
+   bot.api.sendMessage (telegram/delivery.ts, вне вебхука)
+```
+
+Почему именно так:
+
+- **Наблюдатель не управляет заказом.** Он самый уязвимый к ошибкам RPC,
+  дубликатам логов и reorg'ам компонент, и права выдавать товар у него нет.
+- **Дедупликация — ограничение БД** (`@@unique([txHash, logIndex])`) плюс
+  insert-and-catch. Не `SELECT` перед `INSERT`: между проверкой и записью есть
+  окно, в которое два прохода вставят одно и то же. `logIndex` в ключе потому,
+  что в одной транзакции может быть несколько `Transfer` на один адрес — и это
+  разные платежи.
+- **Статус пересчитывается из строк, а не инкрементируется.** Пересчёт, запущенный
+  дважды, даёт тот же ответ; инкремент — нет, а «дважды» для поллера норма.
+- **Финальность — по тегу `finalized`**, а не по магическому числу подтверждений.
+  Оба настроенных RPC его отдают. `CRYPTO_FALLBACK_CONFIRMATIONS` — страховка на
+  случай недоступности тега, намеренно глубокая: честный ответ на «не могу
+  определить» — подождать, а не предположить. `confirmations` хранится, но это
+  диагностика и UI, а не бизнес-правило.
+- **Ключей в БД нет.** `DepositWallet` — только адрес, BIP-44 индекс и путь; API
+  держит watch-only xpub и физически не может подписывать (`config.ts` падает на
+  старте, если подсунуть xprv или мнемонику). Дамп базы не даёт потратить ничего.
+- **Суммы в двух представлениях**: центы USDT целым числом для учёта и
+  десятичная строка wei для сети. `bigint` — потому что 0.01 USDT = 10^16, за
+  пределами `MAX_SAFE_INTEGER`. Мост один: `crypto/amounts.ts`.
+- **Sweep пока только в схеме** (`SweepAttempt`, `DepositWallet.sweepStatus`).
+  Подписи, заправка газом и перевод — отдельная фаза, и выдача товара намеренно
+  от них не зависит.
 
 ---
 

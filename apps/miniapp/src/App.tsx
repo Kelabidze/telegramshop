@@ -10,6 +10,7 @@ import { CatalogScreen } from './screens/CatalogScreen.tsx';
 import { AbuseScreen } from './screens/AbuseScreen.tsx';
 import { ProductScreen } from './screens/ProductScreen.tsx';
 import { CartScreen } from './screens/CartScreen.tsx';
+import { CryptoPaymentScreen } from './screens/CryptoPaymentScreen.tsx';
 import { OrdersScreen } from './screens/OrdersScreen.tsx';
 import { ProfileScreen } from './screens/ProfileScreen.tsx';
 import { AdminCatalogScreen } from './screens/admin/AdminCatalogScreen.tsx';
@@ -40,7 +41,9 @@ type View =
   | { name: 'cart' }
   | { name: 'orders' }
   | { name: 'profile' }
-  | { name: 'home' };
+  | { name: 'home' }
+  /** Waiting for an on-chain payment. Carries the order it settles. */
+  | { name: 'crypto-payment'; orderId: string };
 
 /**
  * Which tab stays highlighted for a given screen.
@@ -65,6 +68,10 @@ function tabForView(view: View, fallback: TabName): TabName {
     case 'cart':
       return 'cart';
     case 'orders':
+      return 'orders';
+    // Reached from the cart, and the payment it is waiting for belongs to an
+    // order — either tab is defensible, and Orders is where the buyer goes next.
+    case 'crypto-payment':
       return 'orders';
     case 'profile':
       return fallback;
@@ -273,6 +280,20 @@ export function App() {
               isSubscribedChannel={isSubscribedChannel}
               onContinueShopping={() => resetTo({ name: 'home' })}
               onOpenOrders={() => resetTo({ name: 'orders' })}
+              // `resetTo`, not `push`: the cart has been cleared and the order
+              // exists, so going "back" into the cart would show an empty screen
+              // for a payment that is still waiting.
+              onOpenCryptoPayment={(orderId) =>
+                resetTo({ name: 'crypto-payment', orderId })
+              }
+            />
+          ) : null}
+
+          {view.name === 'crypto-payment' ? (
+            <CryptoPaymentScreen
+              orderId={view.orderId}
+              onDone={() => resetTo({ name: 'orders' })}
+              onBackToCatalog={() => resetTo({ name: 'home' })}
             />
           ) : null}
 

@@ -375,6 +375,88 @@ export async function reconcileIntent(intentId: string): Promise<CryptoPayment |
   return toApiCryptoPayment(updated);
 }
 
+/**
+ * On-chain payments for the staff screen.
+ *
+ * Includes the deposit address and transaction hashes — staff need to look a
+ * payment up on an explorer — but nothing about how the address was derived. The
+ * index and path stay server-side: they are the only link back to the master key,
+ * and no diagnostic needs them.
+ */
+export async function listCryptoPaymentsForStaff(limit = 100) {
+  const rows = await prisma.cryptoPaymentIntent.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      status: true,
+      expectedAmountWei: true,
+      expectedAmountMinor: true,
+      receivedAmountWei: true,
+      overpaidAmountWei: true,
+      confirmations: true,
+      createdAt: true,
+      expiresAt: true,
+      confirmedAt: true,
+      wallet: { select: { address: true, sweepStatus: true } },
+      order: {
+        select: {
+          id: true,
+          reference: true,
+          status: true,
+          totalBaseRubMinor: true,
+          rateRubMinorPerUnit: true,
+        },
+      },
+      transactions: {
+        orderBy: [{ blockNumber: 'asc' }, { logIndex: 'asc' }],
+        select: {
+          txHash: true,
+          logIndex: true,
+          amountWei: true,
+          blockNumber: true,
+          status: true,
+          confirmations: true,
+        },
+      },
+    },
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    status: cryptoPaymentStatusSchema.catch('AWAITING').parse(row.status),
+    orderId: row.order.id,
+    orderReference: row.order.reference,
+    orderStatus: row.order.status,
+    depositAddress: toChecksumAddress(row.wallet.address),
+    sweepStatus: row.wallet.sweepStatus,
+    expectedAmountWei: row.expectedAmountWei,
+    expectedAmountMinor: row.expectedAmountMinor,
+    expectedAmountDisplay: formatUsdtAmount(parseWei(row.expectedAmountWei)),
+    receivedAmountWei: row.receivedAmountWei,
+    receivedAmountDisplay: formatUsdtAmount(parseWei(row.receivedAmountWei)),
+    overpaidAmountWei: row.overpaidAmountWei,
+    baseRubMinor: row.order.totalBaseRubMinor,
+    rateRubMinorPerUnit: row.order.rateRubMinorPerUnit,
+    confirmations: row.confirmations,
+    createdAt: row.createdAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
+    confirmedAt: row.confirmedAt ? row.confirmedAt.toISOString() : null,
+    transactions: row.transactions.map((tx) => ({
+      txHash: tx.txHash,
+      logIndex: tx.logIndex,
+      amountDisplay: formatUsdtAmount(parseWei(tx.amountWei)),
+      blockNumber: Number(tx.blockNumber),
+      status: tx.status,
+      confirmations: tx.confirmations,
+    })),
+  }));
+}
+
+export type StaffCryptoPayment = Awaited<
+  ReturnType<typeof listCryptoPaymentsForStaff>
+>[number];
+
 /** Every intent that could still change, for the monitor's working set. */
 export async function listOpenIntents(limit = 200) {
   return prisma.cryptoPaymentIntent.findMany({

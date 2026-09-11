@@ -159,6 +159,8 @@ const ACCESS: Array<Call & { needs: Permission }> = [
   { method: 'PUT', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS', body: {} },
   { method: 'DELETE', url: '/api/products/prod00000000', needs: 'MANAGE_KEYS' },
   { method: 'GET', url: '/api/orders/all', needs: 'VIEW_ORDERS' },
+  // On-chain payments are order data, so they sit behind the same permission.
+  { method: 'GET', url: '/api/crypto-payments', needs: 'VIEW_ORDERS' },
   { method: 'GET', url: '/api/users', needs: 'MANAGE_MANAGERS' },
   { method: 'GET', url: '/api/managers', needs: 'MANAGE_MANAGERS' },
   { method: 'POST', url: '/api/managers', needs: 'MANAGE_MANAGERS', body: {} },

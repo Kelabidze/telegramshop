@@ -11,6 +11,7 @@ import type {
   CountryInput,
   CountryUpdate,
   CreateOrderInput,
+  CryptoPayment,
   ProductDetail,
   ProductSection,
   Manager,
@@ -27,6 +28,40 @@ import type {
 } from '@shop/shared';
 import { CLUB_RECHECK_PARAM } from '@shop/shared';
 import { getInitData } from '../telegram/webapp.ts';
+
+/**
+ * An on-chain payment as the staff screen sees it.
+ *
+ * Declared here rather than in `@shop/shared` because it is a diagnostic view the
+ * API assembles, not part of the buyer-facing contract. Deliberately without the
+ * derivation index or path: those are the only link back to the master key.
+ */
+export interface StaffCryptoPayment {
+  id: string;
+  status: string;
+  orderId: string;
+  orderReference: string;
+  orderStatus: string;
+  depositAddress: string;
+  sweepStatus: string;
+  expectedAmountDisplay: string;
+  receivedAmountDisplay: string;
+  overpaidAmountWei: string | null;
+  baseRubMinor: number;
+  rateRubMinorPerUnit: number;
+  confirmations: number;
+  createdAt: string;
+  expiresAt: string;
+  confirmedAt: string | null;
+  transactions: {
+    txHash: string;
+    logIndex: number;
+    amountDisplay: string;
+    blockNumber: number;
+    status: string;
+    confirmations: number;
+  }[];
+}
 
 /**
  * Typed API client.
@@ -220,6 +255,37 @@ export const api = {
       { method: 'POST' },
     ).then((r) => r.order),
 
+  /** Read-only diagnostics for staff. There is deliberately no "mark as paid". */
+  listCryptoPayments: () =>
+    request<{ cryptoPayments: StaffCryptoPayment[]; count: number }>(
+      '/api/crypto-payments',
+    ).then((r) => r.cryptoPayments),
+
+  // ---- on-chain payments ---------------------------------------------------
+
+  /**
+   * Opens (or re-opens) the on-chain payment for an order.
+   *
+   * Idempotent on the server: a reload returns the same address and amount rather
+   * than issuing a second one, which would split a payment across two intents.
+   */
+  createCryptoPayment: (orderId: string) =>
+    request<{ cryptoPayment: CryptoPayment }>(
+      `/api/orders/${encodeURIComponent(orderId)}/crypto-payment`,
+      { method: 'POST' },
+    ).then((r) => r.cryptoPayment),
+
+  getCryptoPayment: (orderId: string) =>
+    request<{ cryptoPayment: CryptoPayment }>(
+      `/api/orders/${encodeURIComponent(orderId)}/crypto-payment`,
+    ).then((r) => r.cryptoPayment),
+
+  cancelCryptoPayment: (orderId: string) =>
+    request<{ cryptoPayment: CryptoPayment }>(
+      `/api/orders/${encodeURIComponent(orderId)}/crypto-payment/cancel`,
+      { method: 'POST' },
+    ).then((r) => r.cryptoPayment),
+
   // ---- staff ---------------------------------------------------------------
 
   /**
@@ -265,7 +331,11 @@ export const api = {
       '/api/media/usage',
     ),
 
-  /** Public, but only the admin finance screen has a reason to read it. */
+  /**
+   * Public. Read by the admin finance screen, and by the cart to find out whether
+   * on-chain payment is offered at all — better than assuming and failing at
+   * checkout.
+   */
   getHealth: () =>
     request<{
       ok: boolean;
@@ -273,7 +343,20 @@ export const api = {
       payments: string;
       botConfigured: boolean;
       clubChannelConfigured: boolean;
+      uploadsReady?: boolean;
       devAuth: boolean;
+      /** Absent on a server deployed before on-chain payments existed. */
+      crypto?: {
+        enabled: boolean;
+        derivationReady?: boolean;
+        monitorRunning?: boolean;
+        lastScannedBlock?: string | null;
+        headBlock?: string | null;
+        finalizedBlock?: string | null;
+        openIntents?: number;
+        rpcFailures?: number;
+        degraded?: boolean;
+      };
     }>('/health'),
 
   listAllOrders: () =>

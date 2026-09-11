@@ -1,7 +1,28 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { formatMoney, effectiveUnitMinor } from '@shop/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { PaymentCurrency, PaymentRates } from '@shop/shared';
+import {
+  formatMoney,
+  effectiveUnitMinor,
+  starsForRubMinor,
+  usdtMinorForRubMinor,
+} from '@shop/shared';
 import { ApiError, api } from '../api/client.ts';
+import { PaymentMethodPicker } from '../components/PaymentMethodPicker.tsx';
+
+/**
+ * Rates for the PREVIEW only.
+ *
+ * The server owns the real rates and recomputes every amount from the database at
+ * checkout, so these never decide what anyone is charged — they exist so the
+ * method picker can show two comparable figures before an order exists. Kept in
+ * step with the API defaults; a drift shows up as a preview that differs from the
+ * total on the payment screen, not as a wrong charge.
+ */
+const PREVIEW_RATES: PaymentRates = {
+  usdtRubMinorPerUnit: 8_600,
+  starRubMinorPerUnit: 130,
+};
 import {
   cartTotalsFor,
   selectCurrency,
@@ -26,10 +47,13 @@ export function CartScreen({
   isSubscribedChannel,
   onContinueShopping,
   onOpenOrders,
+  onOpenCryptoPayment,
 }: {
   isSubscribedChannel: boolean;
   onContinueShopping: () => void;
   onOpenOrders: () => void;
+  /** Opens the waiting screen for an on-chain payment. */
+  onOpenCryptoPayment: (orderId: string) => void;
 }) {
   const lines = useCart((s) => s.lines);
   const setQuantity = useCart((s) => s.setQuantity);
@@ -43,7 +67,37 @@ export function CartScreen({
   const totals = cartTotalsFor(lines, isSubscribedChannel);
 
   const [isSubmitting, setSubmitting] = useState(false);
+  const [payWith, setPayWith] = useState<PaymentCurrency>('XTR');
   const queryClient = useQueryClient();
+
+  /**
+   * Whether on-chain payment is offered at all.
+   *
+   * Read from `/health` rather than assumed: the server can have crypto switched
+   * off, and offering a method that then fails at checkout is worse than not
+   * offering it. Cheap, cached, and never blocks the cart — a failed probe simply
+   * means Stars only.
+   */
+  const healthQuery = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api.getHealth(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const usdtAvailable = healthQuery.data?.crypto?.enabled === true;
+
+  /**
+   * Prices in both rails, from the same RUB base the server will use.
+   *
+   * The cart's stored amounts are base-currency kopecks, so these are display
+   * figures only — the server recomputes everything from the database at
+   * checkout. Shown here so the choice is informed rather than blind.
+   */
+  const starsMinor = starsForRubMinor(totals.payableMinor, PREVIEW_RATES);
+  const usdtMinor = usdtMinorForRubMinor(totals.payableMinor, PREVIEW_RATES);
+  const isRubPriced = currency === 'RUB';
+  const effectivePayWith: PaymentCurrency =
+    isRubPriced && usdtAvailable ? payWith : 'XTR';
 
   async function checkout() {
     if (lines.length === 0 || isSubmitting) return;
@@ -55,7 +109,18 @@ export function CartScreen({
           productId: line.productId,
           quantity: line.quantity,
         })),
+        paymentCurrency: effectivePayWith,
       });
+
+      // On-chain: there is no invoice to open, only an address to pay. The cart
+      // is cleared because the order now exists and owns the amount.
+      if (session.cryptoPayment) {
+        clear();
+        haptic('success');
+        await queryClient.invalidateQueries({ queryKey: ['orders'] });
+        onOpenCryptoPayment(session.order.id);
+        return;
+      }
 
       // Free orders are already paid and delivered by the server.
       if (!session.invoiceUrl) {
@@ -114,14 +179,27 @@ export function CartScreen({
     }
   }
 
+  /**
+   * The button names the amount in the currency that will actually be charged,
+   * not the base one. A button reading «Оплатить 1 579 ₽» that then asks for
+   * 18.37 USDT is the kind of surprise that stops a checkout.
+   */
+  const buttonAmount = isRubPriced
+    ? effectivePayWith === 'USDT'
+      ? formatMoney(usdtMinor, 'USDT')
+      : formatMoney(starsMinor, 'XTR')
+    : currency
+      ? formatMoney(totals.payableMinor, currency)
+      : null;
+
   useMainButton(
     lines.length > 0
       ? {
           text:
             totals.payableMinor === 0
               ? 'Получить бесплатно'
-              : currency
-                ? `Оплатить ${formatMoney(totals.payableMinor, currency)}`
+              : buttonAmount
+                ? `Оплатить ${buttonAmount}`
                 : 'Оплатить',
           loading: isSubmitting,
           onClick: () => void checkout(),
@@ -204,6 +282,24 @@ export function CartScreen({
           {currency ? formatMoney(totals.payableMinor, currency) : '—'}
         </strong>
       </div>
+
+      {/*
+        Only for RUB-priced carts and only when the total is payable: a legacy
+        XTR-priced product has no base to convert from, and a free order has
+        nothing to choose between.
+      */}
+      {isRubPriced && totals.payableMinor > 0 ? (
+        <div style={{ marginTop: 16 }}>
+          <h2 className="section-title">Способ оплаты</h2>
+          <PaymentMethodPicker
+            value={effectivePayWith}
+            starsMinor={starsMinor}
+            usdtMinor={usdtMinor}
+            usdtAvailable={usdtAvailable}
+            onChange={setPayWith}
+          />
+        </div>
+      ) : null}
 
       {/*
         Both states are shown here, unlike on the product page: the cart is the

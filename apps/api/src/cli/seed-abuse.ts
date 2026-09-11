@@ -1,12 +1,12 @@
-/**
- * Seeds the root products of the «Всё для Абуза» section.
+﻿/**
+ * Seeds the root products of the В«Р’СЃС‘ РґР»СЏ РђР±СѓР·Р°В» section.
  *
  *   npm run db:seed:abuse                                    # dev
  *   node --env-file=<api.env> dist/cli/seed-abuse.js         # production
  *
  * Parents only: their country variations are added later through the admin
- * panel. A parent has no stock of its own and cannot be ordered — `createOrder`
- * refuses it — so seeding these is safe on a live shop: they show up as cards
+ * panel. A parent has no stock of its own and cannot be ordered вЂ” `createOrder`
+ * refuses it вЂ” so seeding these is safe on a live shop: they show up as cards
  * that lead to an empty selector, never as something buyable at the wrong price.
  *
  * Idempotent by slug. Existing rows are left completely alone rather than
@@ -43,7 +43,7 @@ const ROOT_PRODUCTS: ReadonlyArray<{ title: string; slug: string }> = [
 ];
 
 async function main(): Promise<void> {
-  console.log(`Seeding «Всё для Абуза» roots into ${config.databaseUrl}`);
+  console.log(`Seeding В«Р’СЃС‘ РґР»СЏ РђР±СѓР·Р°В» roots into ${config.databaseUrl}`);
 
   let created = 0;
   let kept = 0;
@@ -68,11 +68,11 @@ async function main(): Promise<void> {
         // A parent's own price is never charged: the card shows "from X" derived
         // from its variations. Zero keeps it obvious that nothing is set here.
         amountMinor: 0,
-        currency: 'XTR',
+        currency: 'RUB',
         fulfillmentKind: 'LICENSE_KEY',
         // Emoji rather than an image: nobody has uploaded artwork yet, and a
         // blank square is worse than a placeholder.
-        emoji: '🎯',
+        emoji: 'рџЋЇ',
         isActive: true,
         sortOrder: index + 1,
       },

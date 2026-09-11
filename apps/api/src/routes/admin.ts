@@ -41,6 +41,7 @@ import {
   updateProduct,
 } from '../services/admin-catalog.js';
 import { listAllOrders } from '../services/admin-orders.js';
+import { listCryptoPaymentsForStaff } from '../services/crypto-payments.js';
 import { listShopUsers } from '../services/admin-users.js';
 import {
   listManagers,
@@ -302,6 +303,26 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const query = parse(orderListQuerySchema, request.query, 'query');
       const orders = await listAllOrders(query);
       return { orders, count: orders.length };
+    },
+  );
+
+  /**
+   * On-chain payments, for diagnosing a checkout that did not settle.
+   *
+   * Read-only, and deliberately so: there is no "mark as paid" here. Such a button
+   * is a way to release goods without the chain agreeing, which is exactly the
+   * check this whole subsystem exists to perform. A stuck payment is fixed by
+   * finding out why, not by overriding it.
+   *
+   * Behind VIEW_ORDERS rather than a new permission: it is order data, and whoever
+   * may read orders already sees the amounts and the delivered payloads.
+   */
+  app.get(
+    '/crypto-payments',
+    { preHandler: app.requirePermission('VIEW_ORDERS') },
+    async () => {
+      const payments = await listCryptoPaymentsForStaff();
+      return { cryptoPayments: payments, count: payments.length };
     },
   );
 

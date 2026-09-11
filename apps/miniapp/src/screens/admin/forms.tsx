@@ -147,7 +147,9 @@ export function ProductForm({
           title: title.trim(),
           description: description.trim(),
           amountMinor,
-          currency: 'XTR',
+          // RUB is the base currency: one price per product, from which Stars and
+          // USDT are derived at checkout.
+          currency: 'RUB',
           fulfillmentKind,
           categoryId: categoryId || null,
           isActive,
@@ -274,7 +276,12 @@ export function ProductForm({
       <Field label="Slug">
         <input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} />
       </Field>
-      <Field label="Цена, ⭐">
+      {/*
+        Kopecks, not roubles: the field is the raw column value, and a form that
+        silently multiplied by 100 would make "what did I type" and "what is
+        stored" two different questions. The hint states the conversion instead.
+      */}
+      <Field label="Базовая цена, копейки">
         <input
           className="input"
           inputMode="numeric"
@@ -282,6 +289,11 @@ export function ProductForm({
           onChange={(e) => setAmount(e.target.value)}
         />
       </Field>
+      <p className="hint" style={{ margin: 0 }}>
+        {amount && Number.isInteger(Number(amount)) && Number(amount) > 0
+          ? `Это ${formatMoney(Number(amount), 'RUB')}. Stars и USDT считаются от неё по курсу сервера.`
+          : 'В копейках: 129000 = 1290 ₽. Цены в Stars и USDT считаются от неё автоматически.'}
+      </p>
       {amountHint ? <p className="hint" style={{ margin: 0 }}>{amountHint}</p> : null}
       {isSectionRoot ? (
         <p className="hint" style={{ margin: 0 }}>

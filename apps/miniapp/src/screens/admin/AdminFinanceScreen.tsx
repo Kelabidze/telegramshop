@@ -119,10 +119,163 @@ export function AdminFinanceScreen() {
         </div>
       )}
 
+      <CryptoSection health={health} />
+
       <p className="hint" style={{ marginTop: 16 }}>
         Выручка считается по заказам в статусе PAID и не учитывает возвраты
         Telegram Stars.
       </p>
     </div>
+  );
+}
+
+/**
+ * On-chain payments: watcher state and the recent intents.
+ *
+ * Read-only by design. There is no button to mark a payment as received: that
+ * would release goods without the chain agreeing, which is the one check this
+ * subsystem exists to make. A stuck payment is diagnosed here and fixed by
+ * understanding why, not by overriding it.
+ */
+function CryptoSection({
+  health,
+}: {
+  health: { crypto?: { enabled: boolean; [key: string]: unknown } };
+}) {
+  const enabled = health.crypto?.enabled === true;
+
+  const paymentsQuery = useQuery({
+    queryKey: ['staff-crypto-payments'],
+    queryFn: () => api.listCryptoPayments(),
+    enabled,
+    // Payments settle on their own; a stale list is misleading while watching one.
+    refetchInterval: 15_000,
+    retry: false,
+  });
+
+  if (!enabled) {
+    return (
+      <>
+        <h2 className="section-title">Оплата USDT</h2>
+        <div className="card">
+          <p className="hint" style={{ margin: 0 }}>
+            Выключена. Включается на сервере: CRYPTO_PAYMENTS_ENABLED=true и
+            watch-only ключ CRYPTO_DEPOSIT_XPUB. Приватный ключ и мнемоника в API
+            не попадают — он не может подписывать транзакции.
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  const crypto = health.crypto as {
+    monitorRunning?: boolean;
+    lastScannedBlock?: string | null;
+    headBlock?: string | null;
+    finalizedBlock?: string | null;
+    openIntents?: number;
+    rpcFailures?: number;
+    degraded?: boolean;
+  };
+  const payments = paymentsQuery.data ?? [];
+
+  return (
+    <>
+      <h2 className="section-title">Оплата USDT</h2>
+      <div className="card stack">
+        <div className="row">
+          <span className="hint">Наблюдатель</span>
+          <div className="spacer" />
+          <strong style={crypto.degraded ? { color: 'var(--zone-error)' } : undefined}>
+            {crypto.degraded ? 'сбои RPC' : 'работает'}
+          </strong>
+        </div>
+        <div className="row">
+          <span className="hint">Просканировано / голова</span>
+          <div className="spacer" />
+          <strong>
+            {crypto.lastScannedBlock ?? '—'} / {crypto.headBlock ?? '—'}
+          </strong>
+        </div>
+        <div className="row">
+          <span className="hint">Финализированный блок</span>
+          <div className="spacer" />
+          <strong>{crypto.finalizedBlock ?? '—'}</strong>
+        </div>
+        <div className="row">
+          <span className="hint">Открытых платежей</span>
+          <div className="spacer" />
+          <strong>{crypto.openIntents ?? 0}</strong>
+        </div>
+        {crypto.rpcFailures ? (
+          <div className="row">
+            <span className="hint">Ошибок RPC</span>
+            <div className="spacer" />
+            <strong>{crypto.rpcFailures}</strong>
+          </div>
+        ) : null}
+      </div>
+
+      {paymentsQuery.isError ? (
+        <div className="card" style={{ marginTop: 10 }}>
+          <p className="hint" style={{ margin: 0 }}>
+            Список недоступен: нужно право «Все заказы» (VIEW_ORDERS).
+          </p>
+        </div>
+      ) : payments.length === 0 ? (
+        <div className="card" style={{ marginTop: 10 }}>
+          <p className="hint" style={{ margin: 0 }}>
+            Платежей USDT пока не было.
+          </p>
+        </div>
+      ) : (
+        <div className="stack" style={{ marginTop: 10, gap: 8 }}>
+          {payments.slice(0, 25).map((payment) => (
+            <div key={payment.id} className="card">
+              <div className="row">
+                <strong>№{payment.orderReference}</strong>
+                <div className="spacer" />
+                <span className="hint">{payment.status}</span>
+              </div>
+              <div className="row" style={{ marginTop: 6 }}>
+                <span className="hint">
+                  {payment.receivedAmountDisplay} / {payment.expectedAmountDisplay} USDT
+                </span>
+                <div className="spacer" />
+                <span className="hint">
+                  {formatMoney(payment.baseRubMinor, 'RUB')} @{' '}
+                  {formatMoney(payment.rateRubMinorPerUnit, 'RUB')}
+                </span>
+              </div>
+              <div
+                className="hint"
+                style={{
+                  marginTop: 6,
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                  fontSize: 11,
+                  wordBreak: 'break-all',
+                }}
+              >
+                {payment.depositAddress}
+              </div>
+              {payment.overpaidAmountWei ? (
+                <p className="hint" style={{ margin: '6px 0 0', color: 'var(--zone-warning)' }}>
+                  Переплата зафиксирована — нужен ручной разбор.
+                </p>
+              ) : null}
+              {payment.transactions.map((tx) => (
+                <div
+                  key={`${tx.txHash}:${tx.logIndex}`}
+                  className="hint"
+                  style={{ marginTop: 4, fontSize: 11 }}
+                >
+                  {tx.amountDisplay} USDT · блок {tx.blockNumber} · {tx.status}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
