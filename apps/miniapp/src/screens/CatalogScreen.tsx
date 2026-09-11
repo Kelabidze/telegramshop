@@ -18,9 +18,12 @@
  * would read as a sale, and the club tier is a standing rate, not a promotion.
  */
 export function CatalogScreen({
+  initialCategory = null,
   isSubscribedChannel,
   onOpenProduct,
 }: {
+  /** Preselected filter, set when Home's category picker opened this screen. */
+  initialCategory?: string | null;
   isSubscribedChannel: boolean;
   onOpenProduct: (slug: string) => void;
 }) {
@@ -28,6 +31,7 @@ export function CatalogScreen({
     <div className="page">
       <CatalogBrowser
         bannerSection="SHOP"
+        initialCategory={initialCategory}
         scrollNamespace="catalog"
         isSubscribedChannel={isSubscribedChannel}
         onOpenProduct={onOpenProduct}

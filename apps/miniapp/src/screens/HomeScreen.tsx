@@ -18,10 +18,13 @@ export function HomeScreen({
   isSubscribedChannel,
   onOpenProduct,
   onOpenCategory,
+  onOpenCatalog,
 }: {
   isSubscribedChannel: boolean;
   onOpenProduct: (slug: string) => void;
   onOpenCategory: (slug: string) => void;
+  /** The full listing, unfiltered — «Смотреть всё». */
+  onOpenCatalog: () => void;
 }) {
   const bannersQuery = useQuery({
     queryKey: ['banners', 'SHOP'],
@@ -69,6 +72,7 @@ export function HomeScreen({
           isSubscribedChannel={isSubscribedChannel}
           onOpenProduct={onOpenProduct}
           onOpenCategory={onOpenCategory}
+          onOpenCatalog={onOpenCatalog}
         />
       ))}
     </div>

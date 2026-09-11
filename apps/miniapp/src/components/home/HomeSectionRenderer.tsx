@@ -20,6 +20,7 @@ export function HomeSectionRenderer({
   isSubscribedChannel,
   onOpenProduct,
   onOpenCategory,
+  onOpenCatalog,
 }: {
   config: HomeSectionConfig;
   banners: Banner[];
@@ -28,6 +29,7 @@ export function HomeSectionRenderer({
   isSubscribedChannel: boolean;
   onOpenProduct: (slug: string) => void;
   onOpenCategory: (slug: string) => void;
+  onOpenCatalog: () => void;
 }) {
   switch (config.type) {
     case 'promo_banners':
@@ -64,10 +66,7 @@ export function HomeSectionRenderer({
           products={products}
           isSubscribedChannel={isSubscribedChannel}
           onOpenProduct={onOpenProduct}
-          onOpenCatalog={() => {
-            // Open catalog without filter
-            onOpenCategory('');
-          }}
+          onOpenCatalog={onOpenCatalog}
         />
       );
 

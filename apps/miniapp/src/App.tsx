@@ -29,7 +29,12 @@ import { AdminFinanceScreen } from './screens/admin/AdminFinanceScreen.tsx';
  * without a special case per screen.
  */
 type View =
-  | { name: 'catalog' }
+  /**
+   * The full listing. `category` is where Home's picker hands over its choice:
+   * the tile promises a filtered catalog, and dropping the slug on the way there
+   * would land the user on «Все товары» with nothing to explain why.
+   */
+  | { name: 'catalog'; category?: string | null }
   | { name: 'abuse' }
   | { name: 'product'; slug: string }
   | { name: 'cart' }
@@ -66,6 +71,34 @@ function tabForView(view: View, fallback: TabName): TabName {
   }
 }
 
+/**
+ * Resolves a view against the mode that is actually rendering it.
+ *
+ * Only `home` needs this. Every other entry in the stack means the same thing in
+ * both modes, because the tab slots keep their identity across the staff remap —
+ * `cart` is the slot, "Корзина" or "Люди" is only its label.
+ *
+ * `home` has no staff counterpart: staff mode turns the four slots into admin
+ * screens and has no editorial hub. Mapping it onto the catalog slot is what
+ * keeps a stack that says `home` renderable in staff mode.
+ */
+function resolveView(view: View, isStaffMode: boolean): View {
+  return isStaffMode && view.name === 'home' ? { name: 'catalog' } : view;
+}
+
+/**
+ * The screen a tab resets to.
+ *
+ * The catalog slot holds two screens in shopper mode: `home` is its root, and
+ * the full listing is reached from inside it. So the slot's root is not the tab
+ * name, and everything that compares "am I already on this tab?" has to ask this
+ * function rather than the tab name — otherwise the listing reports itself as
+ * the root and the tab stops being a way back out of it.
+ */
+function rootViewForTab(tab: TabName, isStaffMode: boolean): View {
+  return tab === 'catalog' && !isStaffMode ? { name: 'home' } : { name: tab };
+}
+
 /** Screens that keep the profile header visible. */
 const HEADER_VIEWS = new Set<View['name']>([
   'home',
@@ -93,6 +126,20 @@ export function App() {
    */
   const canUseStaffMode = viewer?.role === 'ADMIN';
   const isStaffMode = canUseStaffMode && staffModeEnabled;
+
+  /**
+   * What staff mode actually renders.
+   *
+   * The stack can hold `home` while staff mode is on — `/api/me` decides the mode
+   * and lands after the first render, so an admin returning with the persisted
+   * flag starts on the shopper root and gets switched underneath it. Staff mode
+   * has no `home` branch, so without this remap every one of its four `current
+   * .name === …` checks missed and the content area rendered empty: a tab bar and
+   * a mode switch over nothing, which is exactly what "admin is broken" looked
+   * like. Same blank on the way back from the profile, whose stack entry below it
+   * is `home`.
+   */
+  const view = resolveView(current, isStaffMode);
 
   const push = useCallback((view: View) => {
     setStack((prev) => [...prev, view]);
@@ -142,7 +189,10 @@ export function App() {
         // Back to the first tab: staying on "Финансы" while switching to the
         // shopper view would land on Orders, which is a different screen than
         // the one that was on display.
-        resetTo({ name: 'home' });
+        //
+        // The root differs per mode, and the mode here is the one being switched
+        // *to*: staff has no `home`, the shopper catalog tab starts on it.
+        resetTo(rootViewForTab('catalog', !isStaffMode));
       }}
       onOpenProfile={() => {
         haptic('tap');
@@ -153,7 +203,12 @@ export function App() {
         // Tapping the tab you are already on scrolls to the top, the way native
         // tab bars behave. Without it a restored offset would be a trap: there
         // would be no way back to the top but dragging.
-        if (current.name === tab || (tab === 'catalog' && current.name === 'home')) {
+        //
+        // Compared against the slot's root rather than the tab name, because the
+        // shopper catalog slot has two screens: on the full listing this is a tap
+        // back to Home, not a scroll to the top of the page you are on.
+        const root = rootViewForTab(tab, isStaffMode);
+        if (view.name === root.name) {
           // The scroll listener in `useScrollRestoration` records 0 right after
           // this, so the screen also stops trying to restore the old offset.
           window.scrollTo(0, 0);
@@ -161,12 +216,7 @@ export function App() {
         }
         // Selecting a tab always resets the stack, so it doubles as the exit
         // from the profile and from a product page.
-        // Catalog tab now opens Home instead.
-        if (tab === 'catalog') {
-          resetTo({ name: 'home' });
-        } else {
-          resetTo({ name: tab });
-        }
+        resetTo(root);
       }}
       banner={!isTelegramEnvironment() ? <DevBanner /> : null}
     >
@@ -176,67 +226,63 @@ export function App() {
       */}
       {isStaffMode ? (
         <>
-          {current.name === 'catalog' ? <AdminCatalogScreen /> : null}
-          {current.name === 'abuse' ? <AdminAbuseScreen /> : null}
-          {current.name === 'cart' ? <AdminUsersScreen /> : null}
-          {current.name === 'orders' ? <AdminFinanceScreen /> : null}
-          {current.name === 'profile' ? (
+          {view.name === 'catalog' ? <AdminCatalogScreen /> : null}
+          {view.name === 'abuse' ? <AdminAbuseScreen /> : null}
+          {view.name === 'cart' ? <AdminUsersScreen /> : null}
+          {view.name === 'orders' ? <AdminFinanceScreen /> : null}
+          {view.name === 'profile' ? (
             <ProfileScreen viewer={viewer} isPending={isPending} />
           ) : null}
         </>
       ) : (
         <>
-      {current.name === 'home' ? (
-        <HomeScreen
-          isSubscribedChannel={isSubscribedChannel}
-          onOpenProduct={(slug) => push({ name: 'product', slug })}
-          onOpenCategory={(slug) => {
-            // Category picker navigates to Catalog with filter applied
-            resetTo({ name: 'catalog' });
-            // Note: CatalogScreen needs to accept an initial category filter
-            // For now this just opens the catalog; the filter can be applied
-            // through CatalogBrowser's existing category state if needed.
-          }}
-        />
-      ) : null}
+          {view.name === 'home' ? (
+            <HomeScreen
+              isSubscribedChannel={isSubscribedChannel}
+              onOpenProduct={(slug) => push({ name: 'product', slug })}
+              onOpenCategory={(slug) => push({ name: 'catalog', category: slug })}
+              onOpenCatalog={() => push({ name: 'catalog' })}
+            />
+          ) : null}
 
-      {current.name === 'catalog' ? (
-        <CatalogScreen
-          isSubscribedChannel={isSubscribedChannel}
-          onOpenProduct={(slug) => push({ name: 'product', slug })}
-        />
-      ) : null}
+          {view.name === 'catalog' ? (
+            <CatalogScreen
+              initialCategory={view.category ?? null}
+              isSubscribedChannel={isSubscribedChannel}
+              onOpenProduct={(slug) => push({ name: 'product', slug })}
+            />
+          ) : null}
 
-      {current.name === 'abuse' ? (
-        <AbuseScreen
-          isSubscribedChannel={isSubscribedChannel}
-          onOpenProduct={(slug) => push({ name: 'product', slug })}
-        />
-      ) : null}
+          {view.name === 'abuse' ? (
+            <AbuseScreen
+              isSubscribedChannel={isSubscribedChannel}
+              onOpenProduct={(slug) => push({ name: 'product', slug })}
+            />
+          ) : null}
 
-      {current.name === 'product' ? (
-        <ProductScreen
-          slug={current.slug}
-          isSubscribedChannel={isSubscribedChannel}
-          onGoToCart={() => push({ name: 'cart' })}
-        />
-      ) : null}
+          {view.name === 'product' ? (
+            <ProductScreen
+              slug={view.slug}
+              isSubscribedChannel={isSubscribedChannel}
+              onGoToCart={() => push({ name: 'cart' })}
+            />
+          ) : null}
 
-      {current.name === 'cart' ? (
-        <CartScreen
-          isSubscribedChannel={isSubscribedChannel}
-          onContinueShopping={() => resetTo({ name: 'home' })}
-          onOpenOrders={() => resetTo({ name: 'orders' })}
-        />
-      ) : null}
+          {view.name === 'cart' ? (
+            <CartScreen
+              isSubscribedChannel={isSubscribedChannel}
+              onContinueShopping={() => resetTo({ name: 'home' })}
+              onOpenOrders={() => resetTo({ name: 'orders' })}
+            />
+          ) : null}
 
-      {current.name === 'orders' ? (
-        <OrdersScreen onContinueShopping={() => resetTo({ name: 'home' })} />
-      ) : null}
+          {view.name === 'orders' ? (
+            <OrdersScreen onContinueShopping={() => resetTo({ name: 'home' })} />
+          ) : null}
 
-      {current.name === 'profile' ? (
-        <ProfileScreen viewer={viewer} isPending={isPending} />
-      ) : null}
+          {view.name === 'profile' ? (
+            <ProfileScreen viewer={viewer} isPending={isPending} />
+          ) : null}
         </>
       )}
     </AppLayout>

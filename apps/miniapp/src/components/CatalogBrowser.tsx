@@ -32,6 +32,7 @@ import { haptic } from '../telegram/webapp.ts';
 export function CatalogBrowser({
   bannerSection,
   bannerShape,
+  initialCategory = null,
   scrollNamespace,
   isSubscribedChannel,
   onOpenProduct,
@@ -40,6 +41,15 @@ export function CatalogBrowser({
   bannerSection: ProductSection;
   /** Frame for those banners; defaults to the 16:9 strip. */
   bannerShape?: 'strip' | 'square';
+  /**
+   * Filter to open with, for callers that already know what the user picked.
+   *
+   * Only the initial value: the filter stays local state afterwards, so tapping
+   * the active tile still clears it. Lifting it to the caller would mean routing
+   * every in-screen filter change back through the navigation stack, and each of
+   * those would become a back-button step.
+   */
+  initialCategory?: string | null;
   /**
    * Prefix for the saved scroll offset, one per screen.
    *
@@ -50,7 +60,7 @@ export function CatalogBrowser({
   isSubscribedChannel: boolean;
   onOpenProduct: (slug: string) => void;
 }) {
-  const [category, setCategory] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(initialCategory);
 
   const categoriesQuery = useQuery({
     queryKey: ['categories'],
