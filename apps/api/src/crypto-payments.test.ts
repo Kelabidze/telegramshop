@@ -701,6 +701,245 @@ describe('USDT checkout: expiry', () => {
   });
 });
 
+describe('USDT checkout: stock is held while payment is in flight', () => {
+  /** A product with exactly one key, so the race is unambiguous. */
+  async function seedScarceProduct(slug: string) {
+    const product = await prisma.product.create({
+      data: {
+        slug,
+        title: 'Last One',
+        description: '',
+        amountMinor: 129_000,
+        currency: 'RUB',
+        fulfillmentKind: 'LICENSE_KEY',
+      },
+    });
+    await prisma.licenseKey.create({
+      data: { productId: product.id, secret: `ONLY-${slug}` },
+    });
+    return product.id;
+  }
+
+  it('holds the key so a second buyer cannot take it', async () => {
+    const productId = await seedScarceProduct('scarce-hold');
+
+    // First buyer opens an on-chain payment. The single key is now spoken for.
+    const first = await placeOrder('USDT', productId);
+    assert.ok(first.cryptoPayment);
+
+    // Second buyer tries the same product. Without a hold this would succeed, and
+    // whichever of the two paid second would land in FAILED — after sending
+    // irreversible funds.
+    await assert.rejects(
+      () => placeOrder('USDT', productId, 1, { telegramId: BUYER_ID + 20 }),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, 'OUT_OF_STOCK');
+        return true;
+      },
+    );
+  });
+
+  it('still lets the holding buyer claim their own key', async () => {
+    const productId = await seedScarceProduct('scarce-claim');
+    const { order, cryptoPayment } = await placeOrder('USDT', productId);
+    assert.ok(cryptoPayment);
+
+    await recordTransfer(cryptoPayment.id, cryptoPayment.expectedAmountWei);
+    const settled = await crypto.reconcileIntent(cryptoPayment.id);
+    assert.equal(settled?.status, 'CONFIRMED');
+
+    // The hold must not lock the buyer out of the very key it was protecting.
+    const paid = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      include: { lines: true },
+    });
+    assert.equal(paid.status, 'PAID');
+    assert.equal(paid.lines[0]!.deliveredPayload, 'ONLY-scarce-claim');
+  });
+
+  it('hides held stock from the storefront count', async () => {
+    const productId = await seedScarceProduct('scarce-count');
+    const { listProducts } = await import('./services/catalog.ts');
+
+    const before = (await listProducts()).find((p) => p.id === productId);
+    assert.equal(before?.stock, 1);
+
+    await placeOrder('USDT', productId);
+
+    // "N left" must mean what a new buyer can actually get.
+    const during = (await listProducts()).find((p) => p.id === productId);
+    assert.equal(during?.stock, 0);
+  });
+
+  it('returns the stock when the buyer cancels', async () => {
+    const productId = await seedScarceProduct('scarce-cancel');
+    const { order, cryptoPayment } = await placeOrder('USDT', productId);
+    assert.ok(cryptoPayment);
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/orders/${order.id}/crypto-payment/cancel`,
+      headers: { authorization: authHeader() },
+      payload: {},
+    });
+
+    // Immediately, not after the hold lapses: the buyer has said they are not
+    // paying, and somebody else may want the key now.
+    const { listProducts } = await import('./services/catalog.ts');
+    const after = (await listProducts()).find((p) => p.id === productId);
+    assert.equal(after?.stock, 1);
+
+    // And a fresh checkout genuinely succeeds.
+    const next = await placeOrder('USDT', productId, 1, { telegramId: BUYER_ID + 21 });
+    assert.ok(next.cryptoPayment);
+  });
+
+  it('returns the stock when the payment expires', async () => {
+    const productId = await seedScarceProduct('scarce-expire');
+    const { cryptoPayment } = await placeOrder('USDT', productId);
+    assert.ok(cryptoPayment);
+
+    await prisma.cryptoPaymentIntent.update({
+      where: { id: cryptoPayment.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+    await crypto.expireStaleIntents();
+
+    const { listProducts } = await import('./services/catalog.ts');
+    const after = (await listProducts()).find((p) => p.id === productId);
+    assert.equal(after?.stock, 1);
+  });
+
+  it('recovers on its own when a hold simply lapses', async () => {
+    // The self-healing property: nothing has to remember to release a hold, which
+    // is the failure mode a boolean flag would have had.
+    const productId = await seedScarceProduct('scarce-lapse');
+    const { order } = await placeOrder('USDT', productId);
+
+    const line = await prisma.orderLine.findFirstOrThrow({
+      where: { orderId: order.id },
+    });
+    await prisma.licenseKey.updateMany({
+      where: { reservedForLineId: line.id },
+      data: { reservedUntil: new Date(Date.now() - 1_000) },
+    });
+
+    const { countAvailableKeys } = await import('./services/orders.ts');
+    assert.equal(await countAvailableKeys(productId), 1);
+  });
+
+  it('terminates when asked for more keys than exist', async () => {
+    /*
+     * Regression: the reservation loop used to decrement its own counter on a lost
+     * race, with no ceiling. A row that kept matching the filter but refusing the
+     * conditional UPDATE would spin forever — inside the request holding a
+     * checkout open. The bound is what makes this test finish at all.
+     */
+    const productId = await seedScarceProduct('scarce-bounded');
+    const { reserveLicenseKeys } = await import('./services/orders.ts');
+
+    // The fixture product has no order yet — the hold needs a line to hang on.
+    const user = await prisma.user.findFirstOrThrow();
+    const order = await prisma.order.create({
+      data: {
+        reference: `BND${Date.now() % 100000}`,
+        userId: user.id,
+        status: 'PENDING',
+        currency: 'USDT',
+        totalAmountMinor: 1_500,
+        totalBaseRubMinor: 129_000,
+        rateRubMinorPerUnit: 8_600,
+        invoicePayload: `ord_bounded_${Date.now()}`,
+        lines: {
+          create: {
+            productId,
+            titleSnapshot: 'Last One',
+            unitAmountMinor: 1_500,
+            quantity: 1,
+            totalAmountMinor: 1_500,
+            unitBaseRubMinor: 129_000,
+            fulfillmentKind: 'LICENSE_KEY',
+          },
+        },
+      },
+      include: { lines: true },
+    });
+    const lineId = order.lines[0]!.id;
+
+    // One key exists; ask for far more. Must return what it could take and stop,
+    // rather than looping on the exhausted pool.
+    const reserved = await reserveLicenseKeys(
+      productId,
+      lineId,
+      500,
+      new Date(Date.now() + 60_000),
+    );
+    assert.equal(reserved, 1, 'should reserve exactly the one key that exists');
+  });
+
+  it('does not hold stock for a Stars order', async () => {
+    // Stars settle in seconds, so the race was already acceptable there — and a
+    // hold would make the common path slower for no benefit.
+    const productId = await seedScarceProduct('scarce-stars');
+    await placeOrder('XTR', productId);
+
+    const held = await prisma.licenseKey.count({
+      where: { productId, reservedUntil: { not: null } },
+    });
+    assert.equal(held, 0);
+  });
+
+  it('never lets two orders claim the same key, holds or not', async () => {
+    /*
+     * The invariant that must survive everything above. Holds are advisory; the
+     * conditional UPDATE in claimLicenseKey is what decides ownership, so even if
+     * two lines somehow both believed they held a key, only one can claim it.
+     */
+    const productId = await seedScarceProduct('scarce-invariant');
+
+    const a = await placeOrder('USDT', productId);
+    assert.ok(a.cryptoPayment);
+
+    // Force a second order onto the same product by bypassing the stock check,
+    // which is exactly the situation the claim guard exists for.
+    const user = await prisma.user.findFirstOrThrow();
+    const b = await prisma.order.create({
+      data: {
+        reference: `RACE${Date.now() % 100000}`,
+        userId: user.id,
+        status: 'PENDING',
+        currency: 'USDT',
+        totalAmountMinor: 1_500,
+        totalBaseRubMinor: 129_000,
+        rateRubMinorPerUnit: 8_600,
+        invoicePayload: `ord_race_${Date.now()}`,
+        lines: {
+          create: {
+            productId,
+            titleSnapshot: 'Last One',
+            unitAmountMinor: 1_500,
+            quantity: 1,
+            totalAmountMinor: 1_500,
+            unitBaseRubMinor: 129_000,
+            fulfillmentKind: 'LICENSE_KEY',
+          },
+        },
+      },
+    });
+
+    await recordTransfer(a.cryptoPayment.id, a.cryptoPayment.expectedAmountWei);
+    await crypto.reconcileIntent(a.cryptoPayment.id);
+    const secondPaid = await orders.markOrderPaid({ kind: 'crypto', orderId: b.id });
+
+    // One key, one owner. The second order is FAILED, not holding a duplicate.
+    const claimed = await prisma.licenseKey.count({
+      where: { productId, claimedAt: { not: null } },
+    });
+    assert.equal(claimed, 1);
+    assert.equal(secondPaid?.status, 'FAILED');
+  });
+});
+
 describe('USDT checkout: cancellation', () => {
   it('lets a buyer walk away before paying', async () => {
     const { order, cryptoPayment } = await placeOrder('USDT');

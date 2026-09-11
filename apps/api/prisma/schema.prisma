@@ -191,8 +191,29 @@ model LicenseKey {
   orderLineId String?    @unique
   orderLine   OrderLine? @relation(fields: [orderLineId], references: [id], onDelete: SetNull)
 
+  /// Soft hold for a payment that is still in flight, with an expiry.
+  ///
+  /// Needed because an on-chain payment takes minutes rather than the seconds a
+  /// Stars invoice takes, and a transfer is irreversible. Without a hold, a buyer
+  /// could send funds and then be told the last key went to somebody who checked
+  /// out afterwards — and there is no way to hand the money back.
+  ///
+  /// A timestamp rather than a boolean: a held key must return to stock on its own
+  /// when the payment never arrives. Nothing anywhere has to remember to release
+  /// it, which is the failure mode a boolean flag would have.
+  ///
+  /// This does NOT replace the conditional UPDATE in `claimLicenseKey` — a hold is
+  /// advisory, and the claim is still what actually decides ownership.
+  reservedUntil  DateTime?
+  /// Which order line the hold is for, so its own claim can use the held key even
+  /// though other checkouts cannot.
+  reservedForLineId String?
+
   @@unique([productId, secret])
   @@index([productId, claimedAt])
+  /// The reservation sweep and the availability count both filter on these.
+  @@index([productId, claimedAt, reservedUntil])
+  @@index([reservedForLineId])
 }
 
 /// PENDING | PAID | CANCELLED | REFUNDED | FAILED

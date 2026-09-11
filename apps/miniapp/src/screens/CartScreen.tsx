@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { PaymentCurrency, PaymentRates } from '@shop/shared';
+import type { PaymentCurrency } from '@shop/shared';
 import {
   formatMoney,
   effectiveUnitMinor,
@@ -9,20 +9,6 @@ import {
 } from '@shop/shared';
 import { ApiError, api } from '../api/client.ts';
 import { PaymentMethodPicker } from '../components/PaymentMethodPicker.tsx';
-
-/**
- * Rates for the PREVIEW only.
- *
- * The server owns the real rates and recomputes every amount from the database at
- * checkout, so these never decide what anyone is charged — they exist so the
- * method picker can show two comparable figures before an order exists. Kept in
- * step with the API defaults; a drift shows up as a preview that differs from the
- * total on the payment screen, not as a wrong charge.
- */
-const PREVIEW_RATES: PaymentRates = {
-  usdtRubMinorPerUnit: 8_600,
-  starRubMinorPerUnit: 130,
-};
 import {
   cartTotalsFor,
   selectCurrency,
@@ -71,30 +57,31 @@ export function CartScreen({
   const queryClient = useQueryClient();
 
   /**
-   * Whether on-chain payment is offered at all.
+   * Rates and availability, from the server.
    *
-   * Read from `/health` rather than assumed: the server can have crypto switched
-   * off, and offering a method that then fails at checkout is worse than not
-   * offering it. Cheap, cached, and never blocks the cart — a failed probe simply
-   * means Stars only.
+   * Not assumed and not hard-coded: the server can have crypto switched off, and
+   * offering a method that then fails at checkout is worse than not offering it.
+   * Never blocks the cart — while this is loading, or if it fails, the cart falls
+   * back to Stars only, which always works.
    */
-  const healthQuery = useQuery({
-    queryKey: ['health'],
-    queryFn: () => api.getHealth(),
+  const optionsQuery = useQuery({
+    queryKey: ['payment-options'],
+    queryFn: () => api.getPaymentOptions(),
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
-  const usdtAvailable = healthQuery.data?.crypto?.enabled === true;
+  const rates = optionsQuery.data?.rates ?? null;
+  const usdtAvailable = optionsQuery.data?.usdtAvailable === true;
 
   /**
-   * Prices in both rails, from the same RUB base the server will use.
+   * Prices in both rails, from the same RUB base and the same rates the server
+   * will use.
    *
-   * The cart's stored amounts are base-currency kopecks, so these are display
-   * figures only — the server recomputes everything from the database at
-   * checkout. Shown here so the choice is informed rather than blind.
+   * Display figures only — the server recomputes everything from the database at
+   * checkout. Shown so the choice is informed rather than blind.
    */
-  const starsMinor = starsForRubMinor(totals.payableMinor, PREVIEW_RATES);
-  const usdtMinor = usdtMinorForRubMinor(totals.payableMinor, PREVIEW_RATES);
+  const starsMinor = rates ? starsForRubMinor(totals.payableMinor, rates) : null;
+  const usdtMinor = rates ? usdtMinorForRubMinor(totals.payableMinor, rates) : null;
   const isRubPriced = currency === 'RUB';
   const effectivePayWith: PaymentCurrency =
     isRubPriced && usdtAvailable ? payWith : 'XTR';
@@ -184,13 +171,16 @@ export function CartScreen({
    * not the base one. A button reading «Оплатить 1 579 ₽» that then asks for
    * 18.37 USDT is the kind of surprise that stops a checkout.
    */
-  const buttonAmount = isRubPriced
-    ? effectivePayWith === 'USDT'
-      ? formatMoney(usdtMinor, 'USDT')
-      : formatMoney(starsMinor, 'XTR')
-    : currency
-      ? formatMoney(totals.payableMinor, currency)
-      : null;
+  const buttonAmount =
+    isRubPriced && starsMinor !== null && usdtMinor !== null
+      ? effectivePayWith === 'USDT'
+        ? formatMoney(usdtMinor, 'USDT')
+        : formatMoney(starsMinor, 'XTR')
+      : currency
+        ? // Rates have not arrived yet (or a legacy XTR-priced cart): name the
+          // base amount rather than guessing a converted one.
+          formatMoney(totals.payableMinor, currency)
+        : null;
 
   useMainButton(
     lines.length > 0
@@ -288,7 +278,10 @@ export function CartScreen({
         XTR-priced product has no base to convert from, and a free order has
         nothing to choose between.
       */}
-      {isRubPriced && totals.payableMinor > 0 ? (
+      {isRubPriced &&
+      totals.payableMinor > 0 &&
+      starsMinor !== null &&
+      usdtMinor !== null ? (
         <div style={{ marginTop: 16 }}>
           <h2 className="section-title">Способ оплаты</h2>
           <PaymentMethodPicker

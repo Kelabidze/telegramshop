@@ -129,3 +129,22 @@ export function isPaymentCurrency(
 
 /** A base price as stored on a product: kopecks, non-negative integer. */
 export const basePriceRubMinorSchema = amountMinorSchema;
+
+/**
+ * What the storefront needs to preview prices before an order exists.
+ *
+ * Served by the API rather than hard-coded in the client. The server recomputes
+ * every amount from the database at checkout regardless, so a stale client rate
+ * could never produce a wrong charge — but it would show a figure that differs
+ * from the one on the payment screen, and a price that changes between two
+ * screens reads as a bug or a trick. One source, fetched.
+ *
+ * `usdtAvailable` travels with the rates because the picker needs both to render,
+ * and two requests to decide one control is one request too many.
+ */
+export const paymentOptionsSchema = z.object({
+  rates: paymentRatesSchema,
+  /** False when the server has on-chain payments switched off. */
+  usdtAvailable: z.boolean(),
+});
+export type PaymentOptions = z.infer<typeof paymentOptionsSchema>;

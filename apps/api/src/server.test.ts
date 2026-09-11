@@ -111,6 +111,46 @@ after(async () => {
   rmSync(workDir, { recursive: true, force: true });
 });
 
+describe('payment options', () => {
+  it('serves the rates the server itself will charge with', async () => {
+    /*
+     * The client used to carry a copy of these numbers. The server recomputes every
+     * amount at checkout regardless, so a stale copy could not cause a wrong
+     * charge — but it would show one figure in the cart and another on the payment
+     * screen, and a price that changes between screens reads as a bug or a trick.
+     */
+    const res = await app.inject({ method: 'GET', url: '/api/payment-options' });
+    assert.equal(res.statusCode, 200);
+
+    const body = res.json();
+    assert.equal(typeof body.rates.usdtRubMinorPerUnit, 'number');
+    assert.equal(typeof body.rates.starRubMinorPerUnit, 'number');
+    // Positive integers: the conversion divides by these.
+    assert.ok(Number.isInteger(body.rates.usdtRubMinorPerUnit));
+    assert.ok(body.rates.usdtRubMinorPerUnit > 0);
+    assert.ok(Number.isInteger(body.rates.starRubMinorPerUnit));
+    assert.ok(body.rates.starRubMinorPerUnit > 0);
+    // Crypto is off in this suite, so the picker must not offer USDT.
+    assert.equal(body.usdtAvailable, false);
+  });
+
+  it('is public, like the catalog it prices', async () => {
+    // Browsing does not require a signature, and neither does seeing a price.
+    const res = await app.inject({ method: 'GET', url: '/api/payment-options' });
+    assert.equal(res.statusCode, 200);
+  });
+
+  it('exposes nothing beyond rates and availability', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/payment-options' });
+    assert.deepEqual(Object.keys(res.json()).sort(), ['rates', 'usdtAvailable']);
+    // Specifically not the xpub, the endpoints, or the contract.
+    const raw = res.body.toLowerCase();
+    for (const forbidden of ['xpub', 'http', 'rpc', '0x']) {
+      assert.ok(!raw.includes(forbidden), `payment options leaked "${forbidden}"`);
+    }
+  });
+});
+
 describe('health & catalog', () => {
   it('reports health', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' });

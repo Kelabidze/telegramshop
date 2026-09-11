@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { productSectionSchema } from '@shop/shared';
+import { type PaymentOptions, productSectionSchema } from '@shop/shared';
+import { config } from '../config.js';
 import {
   getProductBySlug,
   listCategories,
@@ -28,6 +29,22 @@ const bannerQuerySchema = z.object({
 export const catalogRoutes: FastifyPluginAsync = async (app) => {
   // Catalog is public: browsing does not require a verified viewer.
   app.get('/categories', async () => ({ categories: await listCategories() }));
+
+  /**
+   * Rates for previewing prices, and whether USDT is on offer.
+   *
+   * Public, like the catalog: it exposes nothing a price tag does not already.
+   * Exists so the client has one source for these numbers instead of a copy that
+   * drifts — the server still recomputes every amount at checkout, so a stale
+   * client cannot produce a wrong charge, only a confusing screen.
+   */
+  app.get('/payment-options', async () => {
+    const options: PaymentOptions = {
+      rates: config.rates,
+      usdtAvailable: config.crypto.enabled,
+    };
+    return options;
+  });
 
   // Public too, and for the same reason: a storefront screen renders its promo
   // banners before it knows who is looking.

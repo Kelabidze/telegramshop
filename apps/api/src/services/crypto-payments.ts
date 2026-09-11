@@ -22,7 +22,20 @@ import {
   weiToMinorFloor,
   weiToString,
 } from '../crypto/amounts.js';
-import { markOrderPaid } from './orders.js';
+import {
+  markOrderPaid,
+  releaseLicenseKeys,
+  reserveLicenseKeys,
+} from './orders.js';
+
+/**
+ * Extra time a stock hold outlives its payment deadline.
+ *
+ * A transfer that lands in the final seconds still has to find its key while the
+ * watcher notices it and reconciliation runs. Expiring the hold exactly with the
+ * intent would lose the race against its own settlement.
+ */
+const RESERVATION_GRACE_MS = 10 * 60 * 1000;
 
 /**
  * On-chain payment decisions.
@@ -223,6 +236,31 @@ export async function createIntentForOrder(
 
   const wallet = await allocateDepositWallet();
   const expectedWei = minorToWei(order.totalAmountMinor);
+  const expiresAt = new Date(Date.now() + config.crypto.paymentTtlMs);
+
+  /**
+   * Hold the stock for as long as this payment can be made.
+   *
+   * The reason on-chain needs this and Stars does not: a Stars invoice settles in
+   * seconds, so losing the race meant an `OUT_OF_STOCK` error before any money
+   * moved. Here the buyer is about to send an irreversible transfer and then wait
+   * minutes, so the same race would mean funds spent against an order that can no
+   * longer be fulfilled — with no way to hand them back.
+   *
+   * Held slightly beyond the deadline so a transfer that lands in the last second
+   * still finds its key while reconciliation catches up.
+   *
+   * Best effort: the stock check in `createOrder` already passed, and the
+   * conditional claim at payment time remains the authoritative answer. A hold
+   * that could not be taken is a smaller problem than refusing a checkout.
+   */
+  const holdUntil = new Date(expiresAt.getTime() + RESERVATION_GRACE_MS);
+  for (const line of await prisma.orderLine.findMany({
+    where: { orderId: order.id, fulfillmentKind: 'LICENSE_KEY' },
+    select: { id: true, productId: true, quantity: true },
+  })) {
+    await reserveLicenseKeys(line.productId, line.id, line.quantity, holdUntil);
+  }
 
   const created = await prisma.cryptoPaymentIntent.create({
     data: {
@@ -236,7 +274,7 @@ export async function createIntentForOrder(
       expectedAmountMinor: order.totalAmountMinor,
       status: 'AWAITING',
       walletId: wallet.id,
-      expiresAt: new Date(Date.now() + config.crypto.paymentTtlMs),
+      expiresAt,
     },
     select: { id: true },
   });
@@ -503,6 +541,9 @@ export async function cancelIntent(intentId: string): Promise<CryptoPayment | nu
     where: { id: intent.id },
     data: { status: 'CANCELLED' },
   });
+  // Return the stock immediately rather than waiting for the hold to lapse: the
+  // buyer has said they are not paying, and another one may want the key now.
+  await releaseLicenseKeys(intent.orderId);
   return toApiCryptoPayment(await reloadIntent(intent.id));
 }
 
@@ -528,7 +569,13 @@ export async function expireStaleIntents(now = new Date()): Promise<number> {
     // Through reconcile, not a bulk update: a transfer may have confirmed in the
     // same tick, and that payment must win over the clock.
     const result = await reconcileIntent(id);
-    if (result?.status === 'EXPIRED') expired += 1;
+    if (result?.status === 'EXPIRED') {
+      expired += 1;
+      // Hand the stock back now. The hold would lapse on its own shortly, but a
+      // key sitting unsellable for the grace period after the payment is already
+      // known to be dead is stock nobody can buy for no reason.
+      await releaseLicenseKeys(result.orderId);
+    }
   }
   return expired;
 }

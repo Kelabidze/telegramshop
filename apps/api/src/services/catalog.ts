@@ -98,14 +98,29 @@ const PRODUCT_SELECT = {
   countryId: true,
 } as const;
 
-/** Unclaimed key counts for LICENSE_KEY products, in one grouped query. */
+/**
+ * Sellable key counts for LICENSE_KEY products, in one grouped query.
+ *
+ * Excludes keys held for a payment still in flight, so the storefront does not
+ * advertise a unit somebody is in the middle of paying for. An expired hold counts
+ * again, which is what makes the expiry self-healing — no cleanup job is required
+ * for stock to reappear.
+ *
+ * The consequence is that "N left" can dip while a checkout is open and recover if
+ * it is abandoned. That is the honest number: it is what a new buyer can actually
+ * get, which is the only thing the figure is for.
+ */
 async function stockByProduct(
   productIds: string[],
 ): Promise<Map<string, number>> {
   if (productIds.length === 0) return new Map();
   const grouped = await prisma.licenseKey.groupBy({
     by: ['productId'],
-    where: { productId: { in: productIds }, claimedAt: null },
+    where: {
+      productId: { in: productIds },
+      claimedAt: null,
+      OR: [{ reservedUntil: null }, { reservedUntil: { lt: new Date() } }],
+    },
     _count: { _all: true },
   });
   return new Map(grouped.map((g) => [g.productId, g._count._all]));

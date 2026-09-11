@@ -18,6 +18,7 @@ import type {
   ManagerInput,
   MediaAsset,
   Order,
+  PaymentOptions,
   Product,
   ProductInput,
   ProductListItem,
@@ -204,6 +205,15 @@ export const api = {
     request<{ categories: Category[] }>('/api/categories').then(
       (r) => r.categories,
     ),
+
+  /**
+   * Rates for previewing prices, and whether USDT is offered.
+   *
+   * Fetched rather than hard-coded: the server owns these numbers, and a copy in
+   * the bundle would drift on the next rate change — showing one figure in the
+   * cart and another on the payment screen.
+   */
+  getPaymentOptions: () => request<PaymentOptions>('/api/payment-options'),
 
   /** Active banners of one storefront section, already capped by the server. */
   listBanners: (section: ProductSection) =>
