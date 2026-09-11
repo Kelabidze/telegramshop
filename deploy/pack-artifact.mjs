@@ -58,6 +58,10 @@ const REQUIRED_BUILD_OUTPUTS = [
   'apps/api/dist/cli/seed-abuse.js',
   'apps/api/dist/cli/webhook.js',
   'apps/api/dist/cli/crypto-check.js',
+  // Shipped so an operator can derive the xpub from an existing mnemonic on the
+  // server if they must — though generating keys belongs on a trusted machine,
+  // not in a server's shell history.
+  'apps/api/dist/cli/crypto-keygen.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',
 ];
