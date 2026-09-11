@@ -13,6 +13,14 @@ export const API_ERROR_CODES = [
   'CURRENCY_MISMATCH',
   'ORDER_NOT_PAYABLE',
   'PAYMENTS_DISABLED',
+  /** Crypto checkout is switched off, or configured without a derivation key. */
+  'CRYPTO_PAYMENTS_DISABLED',
+  /** The order already has a live payment intent; reuse it instead of opening another. */
+  'PAYMENT_INTENT_EXISTS',
+  /** The intent's deadline passed. A new one has to be created. */
+  'PAYMENT_INTENT_EXPIRED',
+  /** No deposit address could be issued (derivation misconfigured or exhausted). */
+  'DEPOSIT_ADDRESS_UNAVAILABLE',
   'RATE_LIMITED',
   'INTERNAL_ERROR',
 ] as const;
@@ -40,6 +48,10 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   CURRENCY_MISMATCH: 409,
   ORDER_NOT_PAYABLE: 409,
   PAYMENTS_DISABLED: 503,
+  CRYPTO_PAYMENTS_DISABLED: 503,
+  PAYMENT_INTENT_EXISTS: 409,
+  PAYMENT_INTENT_EXPIRED: 409,
+  DEPOSIT_ADDRESS_UNAVAILABLE: 503,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
 };

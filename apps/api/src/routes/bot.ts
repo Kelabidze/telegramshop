@@ -6,6 +6,10 @@ import { prisma } from '../db.js';
 import { bot } from '../telegram/bot.js';
 import { findOrderByPayload, markOrderPaid } from '../services/orders.js';
 import {
+  formatDeliveryMessage,
+  formatFailedDeliveryMessage,
+} from '../telegram/delivery.js';
+import {
   CLUB_CHECK_CALLBACK,
   handleClubCheckCallback,
   handleStart,
@@ -121,6 +125,7 @@ function registerHandlers(): void {
     const payment = ctx.message.successful_payment;
 
     const order = await markOrderPaid({
+      kind: 'telegram',
       invoicePayload: payment.invoice_payload,
       telegramPaymentChargeId: payment.telegram_payment_charge_id ?? null,
       providerPaymentChargeId: payment.provider_payment_charge_id ?? null,
@@ -133,23 +138,14 @@ function registerHandlers(): void {
       return;
     }
 
+    // Same wording as the on-chain path: both share `telegram/delivery.ts` so a
+    // buyer gets the same message whichever way they paid.
     if (order.status === 'FAILED') {
-      await ctx.reply(
-        `Оплата получена (заказ №${order.reference}), но выдать товар автоматически не удалось. ` +
-          'Мы уже разбираемся и свяжемся с вами.',
-      );
+      await ctx.reply(formatFailedDeliveryMessage(order));
       return;
     }
 
-    const delivered = order.lines
-      .filter((line) => line.deliveredPayload)
-      .map((line) => `<b>${line.titleSnapshot}</b>\n<code>${line.deliveredPayload}</code>`)
-      .join('\n\n');
-
-    await ctx.reply(
-      `✅ Оплата получена. Заказ №${order.reference}\n\n${delivered}`,
-      { parse_mode: 'HTML' },
-    );
+    await ctx.reply(formatDeliveryMessage(order), { parse_mode: 'HTML' });
   });
 
   /** Stars refunds. */

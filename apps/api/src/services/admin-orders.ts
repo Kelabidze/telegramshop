@@ -55,6 +55,9 @@ export async function listAllOrders(
     status: orderStatusSchema.catch('PENDING').parse(order.status),
     currency: currencySchema.catch('XTR').parse(order.currency),
     totalAmountMinor: order.totalAmountMinor,
+    totalBaseRubMinor: order.totalBaseRubMinor,
+    rateRubMinorPerUnit:
+      order.rateRubMinorPerUnit > 0 ? order.rateRubMinorPerUnit : 1,
     comment: order.comment,
     createdAt: order.createdAt.toISOString(),
     paidAt: order.paidAt ? order.paidAt.toISOString() : null,

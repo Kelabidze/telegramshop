@@ -67,6 +67,15 @@ export const productSchema = z.object({
   imageUrl: z.string().max(2000).nullable(),
   /** Fallback artwork when there is no image. */
   emoji: z.string().max(16).nullable().default(null),
+  /**
+   * The club-tier price in the **base** currency's minor units — RUB kopecks.
+   *
+   * `currency` is therefore always `RUB` on a catalog read: roubles are the unit
+   * of account, and what a buyer is charged (Stars, USDT) is derived from this at
+   * checkout. The field kept its name so every consumer that renders a price
+   * through `formatMoney(amountMinor, currency)` keeps working — only the unit
+   * behind it changed.
+   */
   amountMinor: amountMinorSchema,
   currency: currencySchema,
   /** Optional strike-through price for showing a discount. */

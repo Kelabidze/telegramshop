@@ -4,6 +4,11 @@ build/
 .env
 .env.local
 .env.*.local
+# On-chain secrets: the mnemonic and the watch-only xpub live on the server
+# as a dedicated EnvironmentFile, never in the repository.
+crypto.env
+*.mnemonic
+*.xprv
 *.log
 npm-debug.log*
 

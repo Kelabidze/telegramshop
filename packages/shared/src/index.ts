@@ -1,5 +1,7 @@
 export * from './money.js';
 export * from './pricing.js';
+export * from './base-price.js';
+export * from './crypto-payment.js';
 export * from './catalog.js';
 export * from './banner.js';
 export * from './media.js';

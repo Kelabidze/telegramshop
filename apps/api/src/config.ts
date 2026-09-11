@@ -67,6 +67,96 @@ const envSchema = z.object({
 
   PAYMENT_PROVIDER: z.enum(['stars', 'provider', 'none']).default('stars'),
 
+  // ---- pricing -------------------------------------------------------------
+  /**
+   * RUB per 1 USDT, as a whole number of roubles.
+   *
+   * Configuration, not a live feed: no external rate provider is contacted. The
+   * value is snapshotted onto every order at checkout, so changing it here can
+   * never alter what an already-placed order asks for.
+   */
+  USDT_RUB_RATE: z.coerce.number().int().min(1).max(100_000).default(86),
+  /**
+   * RUB per 1 Telegram Star, in kopecks.
+   *
+   * Kopecks rather than roubles because one Star is worth well under a rouble,
+   * so a whole-rouble rate could not express it. 130 = 1.30 ₽ per Star, which is
+   * the order of magnitude Telegram's own Stars pricing sits at.
+   */
+  STAR_RUB_MINOR_RATE: z.coerce.number().int().min(1).max(1_000_000).default(130),
+
+  // ---- on-chain payments ---------------------------------------------------
+  /** Master switch. Off means the API refuses to create USDT intents at all. */
+  CRYPTO_PAYMENTS_ENABLED: booleanish.default(false),
+  /**
+   * Watch-only extended public key for the deposit account, e.g. the xpub of
+   * `m/44'/60'/0'/0`.
+   *
+   * Public material by design: it derives addresses and nothing else. The
+   * mnemonic that produced it must never reach this process — only the separate
+   * sweep component needs signing capability, and that is a later phase.
+   */
+  CRYPTO_DEPOSIT_XPUB: z.string().default(''),
+  /** Path the xpub corresponds to. Recorded on each wallet for future signing. */
+  CRYPTO_DERIVATION_BASE_PATH: z.string().default("m/44'/60'/0'/0"),
+  /** BEP20 USDT contract. Overridable for testnet, not for convenience. */
+  USDT_CONTRACT_ADDRESS: z
+    .string()
+    .default('0x55d398326f99059fF775485246999027B3197955'),
+  BSC_RPC_URL: z.string().default('https://bsc-dataseed.binance.org'),
+  /** Second, independent endpoint. Every RPC call falls back to it. */
+  BSC_RPC_FALLBACK_URL: z.string().default('https://bsc-rpc.publicnode.com'),
+  /** How long a buyer has to send funds, in minutes. */
+  CRYPTO_PAYMENT_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+  /** Seconds between monitor passes. 0 disables the in-process monitor. */
+  CRYPTO_MONITOR_INTERVAL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(3600)
+    .default(15),
+  /**
+   * Largest block range asked for in one `eth_getLogs`.
+   *
+   * Public BSC endpoints reject wide ranges, and a rejected range is a range
+   * whose logs were never seen.
+   */
+  CRYPTO_SCAN_WINDOW_BLOCKS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50_000)
+    .default(2_000),
+  /**
+   * Blocks of slack behind the finalised head when a new address is issued.
+   *
+   * A buyer cannot pay before the address exists, so scanning from slightly
+   * before creation is enough — and far cheaper than scanning from genesis.
+   */
+  CRYPTO_SCAN_START_LAG_BLOCKS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(100_000)
+    .default(200),
+  /**
+   * Fallback confirmation depth, used ONLY if an RPC cannot answer the
+   * `finalized` tag.
+   *
+   * Not the primary mechanism: BSC has fast finality and both configured
+   * endpoints serve `finalized`, so this is a safety net rather than business
+   * logic. Deliberately deeper than the exchanger's 6 — if the precise signal is
+   * unavailable, the honest response is to wait longer, not to guess.
+   */
+  CRYPTO_FALLBACK_CONFIRMATIONS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1000)
+    .default(45),
+  /** Where swept funds are destined. Sweeping is a later phase. */
+  CRYPTO_TREASURY_ADDRESS: z.string().default(''),
+
   CORS_ORIGINS: csv,
   ADMIN_TELEGRAM_IDS: csv,
 
@@ -176,6 +266,35 @@ if (isProd) {
         'the other means the club rate is either unclaimable or unverified.',
     );
   }
+  // Crypto checkout without a derivation key would quote an amount and then have
+  // nowhere to receive it: better to refuse at boot than to sell to a void.
+  if (raw.CRYPTO_PAYMENTS_ENABLED && !raw.CRYPTO_DEPOSIT_XPUB) {
+    throw new Error(
+      'CRYPTO_PAYMENTS_ENABLED=true requires CRYPTO_DEPOSIT_XPUB: deposit ' +
+        'addresses cannot be derived without it.',
+    );
+  }
+}
+
+/**
+ * A private key or mnemonic in this process is a configuration error, not a
+ * feature. The API only ever needs the watch-only key, so anything that can
+ * spend must be rejected loudly rather than quietly used.
+ */
+if (raw.CRYPTO_DEPOSIT_XPUB) {
+  const material = raw.CRYPTO_DEPOSIT_XPUB.trim();
+  if (material.startsWith('xprv') || material.startsWith('yprv') || material.startsWith('zprv')) {
+    throw new Error(
+      'CRYPTO_DEPOSIT_XPUB holds an EXTENDED PRIVATE key. The API must never ' +
+        'hold spending capability — supply the watch-only xpub instead.',
+    );
+  }
+  if (material.split(/\s+/).length >= 12) {
+    throw new Error(
+      'CRYPTO_DEPOSIT_XPUB looks like a mnemonic phrase. The API must never ' +
+        'hold spending capability — supply the watch-only xpub instead.',
+    );
+  }
 }
 
 export const config = {
@@ -213,6 +332,38 @@ export const config = {
     url: raw.CLUB_CHANNEL_URL,
     enabled: raw.CLUB_CHANNEL_ID.length > 0,
     membershipTtlMs: raw.CLUB_MEMBERSHIP_TTL_SECONDS * 1000,
+  },
+
+  /**
+   * Rates used to derive payable prices from the RUB base price.
+   *
+   * Both in RUB minor units per one unit of the target currency, so every
+   * conversion is `rubMinor / rate` — one direction, no chance of inverting one.
+   */
+  rates: {
+    usdtRubMinorPerUnit: raw.USDT_RUB_RATE * 100,
+    starRubMinorPerUnit: raw.STAR_RUB_MINOR_RATE,
+  },
+
+  crypto: {
+    /**
+     * Single question the rest of the code asks. Both parts are required: the
+     * switch alone cannot issue addresses, and a key alone should not start
+     * taking payments nobody turned on.
+     */
+    enabled: raw.CRYPTO_PAYMENTS_ENABLED && raw.CRYPTO_DEPOSIT_XPUB.length > 0,
+    depositXpub: raw.CRYPTO_DEPOSIT_XPUB,
+    derivationBasePath: raw.CRYPTO_DERIVATION_BASE_PATH,
+    usdtContract: raw.USDT_CONTRACT_ADDRESS,
+    rpcUrls: [raw.BSC_RPC_URL, raw.BSC_RPC_FALLBACK_URL].filter(
+      (url, index, all) => url.length > 0 && all.indexOf(url) === index,
+    ),
+    paymentTtlMs: raw.CRYPTO_PAYMENT_TTL_MINUTES * 60 * 1000,
+    monitorIntervalMs: raw.CRYPTO_MONITOR_INTERVAL_SECONDS * 1000,
+    scanWindowBlocks: raw.CRYPTO_SCAN_WINDOW_BLOCKS,
+    scanStartLagBlocks: raw.CRYPTO_SCAN_START_LAG_BLOCKS,
+    fallbackConfirmations: raw.CRYPTO_FALLBACK_CONFIRMATIONS,
+    treasuryAddress: raw.CRYPTO_TREASURY_ADDRESS,
   },
 
   corsOrigins: raw.CORS_ORIGINS,

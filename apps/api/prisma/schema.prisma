@@ -121,10 +121,22 @@ model Product {
   /// A string like every other app-level enum here, for SQLite/Postgres parity.
   section     String  @default("SHOP")
 
-  /// Price in the currency's smallest unit (Stars: whole stars).
+  /// Club-tier price in RUB kopecks — the ONE base price of this product.
+  ///
+  /// Roubles are the unit of account. What a buyer actually pays (Telegram
+  /// Stars, BEP20 USDT) is derived from this at checkout with the server's
+  /// configured rate, and that derived amount plus the rate are snapshotted
+  /// onto the order. Three independent price columns would need three people to
+  /// remember to update them together.
+  ///
+  /// The column keeps its name because every read path already renders it
+  /// through `formatMoney(amountMinor, currency)`; only the unit changed.
   amountMinor    Int
-  currency       String @default("XTR")
-  /// Optional "was" price for discount display.
+  /// Base currency of `amountMinor`. RUB for every product priced under the
+  /// current model; the column survives so pre-existing XTR-priced rows are
+  /// still readable and can be migrated deliberately.
+  currency       String @default("RUB")
+  /// Optional "was" price for discount display, same unit as `amountMinor`.
   compareAtMinor Int?
 
   fulfillmentKind String @default("LICENSE_KEY")
@@ -193,9 +205,23 @@ model Order {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   status           String @default("PENDING")
+  /// What the buyer is charged in: XTR or USDT.
   currency         String
+  /// Total in `currency`'s minor units — the amount actually charged.
   totalAmountMinor Int
   comment          String?
+
+  /// Price snapshot: the same total in the base currency (RUB kopecks) and the
+  /// rate used to derive `totalAmountMinor` from it.
+  ///
+  /// Snapshotted because rates are configuration. Changing USDT_RUB_RATE must
+  /// never rewrite what an already-placed order asked for — a payment intent
+  /// created yesterday has to stay payable at yesterday's number.
+  ///
+  /// Defaults exist for rows created before this column: `db push` backfills
+  /// them, and a 1:1 rate is the honest reading of "we do not know".
+  totalBaseRubMinor   Int @default(0)
+  rateRubMinorPerUnit Int @default(1)
 
   /// Opaque payload echoed back by Telegram in successful_payment.
   invoicePayload String  @unique
@@ -211,6 +237,8 @@ model Order {
 
   lines OrderLine[]
 
+  cryptoPayment CryptoPaymentIntent?
+
   @@index([userId, createdAt])
   @@index([status])
 }
@@ -225,9 +253,14 @@ model OrderLine {
 
   /// Snapshots: the order must stay readable even if the product changes later.
   titleSnapshot   String
+  /// Unit price in the ORDER's currency minor units — what was charged.
   unitAmountMinor Int
   quantity        Int    @default(1)
   totalAmountMinor Int
+  /// The same unit price in the base currency (RUB kopecks) at checkout time.
+  /// Keeps a line auditable after a rate change, and lets staff see the rouble
+  /// value of a line that was charged in Stars.
+  unitBaseRubMinor Int @default(0)
   fulfillmentKind String
 
   /// Secret delivered to the buyer (key, link). Null until paid.
@@ -276,4 +309,189 @@ model ProcessedUpdate {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// On-chain payments (BEP20 USDT on BNB Smart Chain)
+//
+// Layering, and the reason for it: the chain watcher only ever RECORDS what it
+// saw (`CryptoTransaction`). It never touches an order. A single service
+// (`services/crypto-payments.ts`) reads those records and decides the intent's
+// status, and only then calls the existing `markOrderPaid`. Letting the watcher
+// mark orders paid would put money decisions in the component most exposed to
+// RPC lies, reorgs and duplicate logs.
+// ---------------------------------------------------------------------------
+
+/// A request to be paid a specific amount of USDT, at one address, by a deadline.
+///
+/// AWAITING | CONFIRMING | CONFIRMED | UNDERPAID | OVERPAID | EXPIRED | CANCELLED | FAILED
+model CryptoPaymentIntent {
+  id String @id @default(cuid())
+
+  /// One live intent per order. Unique rather than a plain index: two intents
+  /// for one order means two addresses and two expected amounts, and no correct
+  /// way to decide which payment settles the order.
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  chain    String @default("BSC")
+  chainId  Int    @default(56)
+  asset    String @default("USDT")
+  /// Token contract, snapshotted: a config change must not reinterpret amounts
+  /// that were already quoted against a specific token.
+  contract String
+  decimals Int    @default(18)
+
+  /// The exact expected amount, as a DECIMAL STRING of 18-decimal token units.
+  ///
+  /// A string, not Int/BigInt: 0.01 USDT is 10^16, past Number.MAX_SAFE_INTEGER,
+  /// and Prisma's BigInt does not survive JSON. Every comparison parses to
+  /// BigInt first.
+  expectedAmountWei String
+  /// The same amount in USDT cents, for accounting, sums and display.
+  expectedAmountMinor Int
+
+  /// Confirmed so far, same decimal-string convention. Recomputed from
+  /// CryptoTransaction rows, never incremented in place — an increment that ran
+  /// twice would inflate it, and a recompute cannot.
+  receivedAmountWei String @default("0")
+
+  status String @default("AWAITING")
+
+  /// Blocks since inclusion of the newest matching transfer. Diagnostics and UI
+  /// only: whether money is final is decided by the finalised block tag, not by
+  /// counting to a magic number.
+  confirmations Int @default(0)
+
+  /// Recorded when the received amount exceeds the expected one, so an overpayment
+  /// is a visible number for a human rather than a silently absorbed difference.
+  overpaidAmountWei String?
+
+  walletId String        @unique
+  wallet   DepositWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  expiresAt   DateTime
+  confirmedAt DateTime?
+
+  transactions CryptoTransaction[]
+
+  /// The monitor's working set: open intents whose deadline has not passed.
+  @@index([status, expiresAt])
+}
+
+/// A deposit address derived from the master key.
+///
+/// Holds NO secret material. Not the private key, not the mnemonic, not the seed
+/// — only the public address and the path it was derived at, which is enough to
+/// re-derive it when signing is genuinely needed (sweeping, a later phase). A
+/// database dump therefore leaks no spending capability at all.
+model DepositWallet {
+  id      String @id @default(cuid())
+  address String @unique
+
+  /// BIP-44 child index. Unique so two intents can never share an address:
+  /// one address per payment is what makes an incoming transfer attributable.
+  derivationIndex Int    @unique
+  /// Full path, stored rather than reconstructed, so a future change of account
+  /// or coin type cannot orphan existing addresses.
+  derivationPath  String
+
+  /// Scan cursor: the highest block whose logs have been fully processed for
+  /// this address. Advanced only after a range is handled, so a crash re-reads a
+  /// range rather than skipping it.
+  lastScannedBlock BigInt @default(0)
+
+  /// NONE | PENDING | IN_PROGRESS | DONE | FAILED. Sweeping is a later phase;
+  /// the state exists now so funds can be tracked from the first payment.
+  sweepStatus String    @default("NONE")
+  sweptAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  intent       CryptoPaymentIntent?
+  transactions CryptoTransaction[]
+  sweeps       SweepAttempt[]
+
+  @@index([sweepStatus])
+}
+
+/// One observed BEP20 Transfer into a deposit address.
+///
+/// This table is the deduplication mechanism. `@@unique([txHash, logIndex])` is
+/// a database constraint, so a duplicate insert fails no matter how many scans
+/// run concurrently. Checking for existence before inserting would leave the
+/// classic read-then-write race, which is exactly how a double credit happens.
+model CryptoTransaction {
+  id String @id @default(cuid())
+
+  txHash String
+  /// Required, and the reason the unique key is a pair: one transaction can carry
+  /// several Transfer logs to the same address, and they are separate payments.
+  logIndex Int
+
+  walletId String        
+  wallet   DepositWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  /// Nullable on purpose: money can arrive at an address whose intent already
+  /// expired, or was never created. Recording it with no intent keeps the funds
+  /// visible instead of dropping the log on the floor.
+  intentId String?
+  intent   CryptoPaymentIntent? @relation(fields: [intentId], references: [id], onDelete: SetNull)
+
+  fromAddress String
+  /// Decimal string of 18-decimal token units, as on the intent.
+  amountWei   String
+
+  blockNumber BigInt
+  /// Kept so a reorg is detectable: if the canonical block at this height no
+  /// longer has this hash, the transfer never happened on the surviving chain.
+  blockHash   String
+
+  confirmations Int    @default(0)
+  /// SEEN | CONFIRMED | ORPHANED
+  status        String @default("SEEN")
+
+  firstSeenAt DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  confirmedAt DateTime?
+
+  @@unique([txHash, logIndex])
+  @@index([walletId, blockNumber])
+  @@index([intentId, status])
+  @@index([status])
+}
+
+/// An attempt to move confirmed funds from a deposit address to the treasury.
+///
+/// Schema only for now: signing, gas funding and the transfer itself are a
+/// deliberate later phase. It exists already so that the first payments are
+/// trackable — and because sweeping must never be in the fulfilment path, the
+/// buyer gets their goods whether or not this table has a row.
+model SweepAttempt {
+  id String @id @default(cuid())
+
+  walletId String
+  wallet   DepositWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  /// Amount this attempt tried to move, decimal string of token units.
+  amountWei String
+  /// The sweep transaction, once broadcast. Unique so one broadcast is one row.
+  txHash    String? @unique
+  /// PENDING | SENT | CONFIRMED | FAILED
+  status    String  @default("PENDING")
+  /// 1-based counter, so repeated failures are visible rather than overwritten.
+  attempt   Int     @default(1)
+  /// Failure reason, for diagnosis. Never a key or any secret material.
+  error     String?
+  /// A deposit address holds no BNB, so gas has to be sent first; that transfer
+  /// is recorded here to make a half-finished sweep diagnosable.
+  gasFundingTxHash String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([walletId, status])
 }

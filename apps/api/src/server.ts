@@ -15,19 +15,79 @@ import { authPlugin } from './plugins/auth.js';
 import { adminRoutes } from './routes/admin.js';
 import { catalogRoutes } from './routes/catalog.js';
 import { orderRoutes } from './routes/orders.js';
+import { cryptoPaymentRoutes } from './routes/crypto-payments.js';
 import { botRoutes } from './routes/bot.js';
 import { userRoutes } from './routes/users.js';
+import { isDerivationAvailable } from './crypto/addresses.js';
+import { getMonitorState, startMonitor, stopMonitor } from './crypto/monitor.js';
+import { getRpcClient } from './crypto/rpc.js';
+
+/**
+ * Crypto diagnostics for `/health`.
+ *
+ * Enough to answer "is the watcher alive and is it keeping up" without a metrics
+ * stack: the scan cursor, RPC error counts, and how many payments are open.
+ * `degraded` is a real signal rather than a constant — a watcher whose every RPC
+ * call fails while `/health` reports "ok" is worse than no health check at all.
+ *
+ * No secrets: no xpub, no endpoint URLs (which can carry API keys in a path),
+ * no addresses.
+ */
+async function cryptoHealth() {
+  if (!config.crypto.enabled) {
+    return { enabled: false as const, derivationReady: isDerivationAvailable() };
+  }
+
+  const monitor = getMonitorState();
+  const rpc = getRpcClient().getStats();
+
+  const [openIntents, lastCursor] = await Promise.all([
+    prisma.cryptoPaymentIntent.count({
+      where: { status: { in: ['AWAITING', 'CONFIRMING', 'UNDERPAID'] } },
+    }),
+    prisma.depositWallet.aggregate({ _max: { lastScannedBlock: true } }),
+  ]);
+
+  return {
+    enabled: true as const,
+    derivationReady: isDerivationAvailable(),
+    monitorRunning: monitor.running,
+    lastPassAt: monitor.lastPassAt,
+    lastSuccessAt: monitor.lastSuccessAt,
+    consecutiveFailures: monitor.consecutiveFailures,
+    skippedTicks: monitor.skippedTicks,
+    lastScannedBlock: lastCursor._max.lastScannedBlock?.toString() ?? null,
+    headBlock: monitor.lastResult?.headBlock ?? null,
+    finalizedBlock: monitor.lastResult?.finalizedBlock ?? null,
+    usedFallbackFinality: monitor.lastResult?.usedFallbackFinality ?? false,
+    openIntents,
+    rpcCalls: rpc.calls,
+    rpcFailures: rpc.failures,
+    rpcFallbackUses: rpc.fallbackUses,
+    // Three passes in a row is a pattern, not a blip.
+    degraded: monitor.consecutiveFailures >= 3,
+  };
+}
 
 export async function buildServer() {
   const app = Fastify({
     logger: {
       level: config.logLevel,
-      // Never log credentials.
+      // Never log credentials. The crypto entries are belt and braces: no code
+      // path logs derivation material today, and this makes sure a future one
+      // that carries it in a request or an error object still cannot.
       redact: {
         paths: [
           'req.headers.authorization',
           'req.headers["x-telegram-init-data"]',
           'req.headers["x-telegram-bot-api-secret-token"]',
+          'xpub',
+          'mnemonic',
+          'privateKey',
+          'seedPhrase',
+          '*.xpub',
+          '*.mnemonic',
+          '*.privateKey',
         ],
         censor: '[redacted]',
       },
@@ -185,11 +245,13 @@ export async function buildServer() {
       // as a failed upload later. `ok` stays true: the shop works without it.
       uploadsReady,
       devAuth: config.devAuthEnabled,
+      crypto: await cryptoHealth(),
     };
   });
 
   await app.register(catalogRoutes, { prefix: '/api' });
   await app.register(orderRoutes, { prefix: '/api' });
+  await app.register(cryptoPaymentRoutes, { prefix: '/api' });
   await app.register(userRoutes, { prefix: '/api' });
   // Management endpoints. Same `/api` prefix as the public ones: they are told
   // apart by their pre-handlers, not by the URL, so no path can be mistaken for
@@ -206,6 +268,9 @@ async function main() {
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'Shutting down');
     try {
+      // Before closing the server: a pass mid-flight would otherwise keep
+      // querying a database that is about to disconnect.
+      stopMonitor();
       await app.close();
       await disconnectDb();
       process.exit(0);
@@ -242,6 +307,16 @@ async function main() {
         'Club channel is not configured (CLUB_CHANNEL_ID empty); everyone pays the standard price.',
       );
     }
+
+    /**
+     * The chain watcher runs inside this process.
+     *
+     * One systemd unit means one watcher, so there is no risk of two instances
+     * scanning the same ranges — the reason a separate worker is not worth its
+     * own unit yet. It is started only after `listen` succeeds: a process that
+     * cannot serve should not be taking payments either.
+     */
+    startMonitor(app.log);
   } catch (error) {
     app.log.error({ err: error }, 'Failed to start server');
     process.exit(1);

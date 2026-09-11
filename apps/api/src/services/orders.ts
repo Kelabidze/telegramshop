@@ -1,15 +1,19 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   type CreateOrderInput,
-  type Currency,
+  type CryptoPayment,
   type Order,
   type OrderLine,
+  type PaymentCurrency,
   type Viewer,
   currencySchema,
   effectiveUnitMinor,
   fulfillmentKindSchema,
   orderStatusSchema,
+  payableMinorForCurrency,
+  rateForCurrency,
 } from '@shop/shared';
+import { config } from '../config.js';
 import { prisma } from '../db.js';
 import { AppError, notFound } from '../errors.js';
 import { payments } from '../payments/gateway.js';
@@ -26,6 +30,9 @@ import { payments } from '../payments/gateway.js';
  *     deliver goods twice.
  *  5. The club rate is applied from the viewer's verified membership, never
  *     from anything the client sends.
+ *  6. A product has ONE price, in RUB. What the buyer is charged — Stars, USDT —
+ *     is derived here from the server's configured rate and then snapshotted, so
+ *     a later rate change cannot rewrite an order that already exists.
  */
 
 /** Human-friendly order code. Avoids ambiguous characters (0/O, 1/I). */
@@ -75,6 +82,12 @@ function toApiOrder(order: NonNullable<DbOrder>): Order {
     status: orderStatusSchema.catch('PENDING').parse(order.status),
     currency: currencySchema.catch('XTR').parse(order.currency),
     totalAmountMinor: order.totalAmountMinor,
+    totalBaseRubMinor: order.totalBaseRubMinor,
+    // `catch` is not available for a plain positive-int guard, and a zero or
+    // negative rate would divide badly downstream. Rows created before the
+    // column existed carry the default 1.
+    rateRubMinorPerUnit:
+      order.rateRubMinorPerUnit > 0 ? order.rateRubMinorPerUnit : 1,
     comment: order.comment,
     createdAt: order.createdAt.toISOString(),
     paidAt: order.paidAt ? order.paidAt.toISOString() : null,
@@ -82,9 +95,13 @@ function toApiOrder(order: NonNullable<DbOrder>): Order {
   };
 }
 
+/** Exported so the crypto payment service maps orders the same way. */
+export { toApiOrder };
+
 export interface CreatedOrder {
   order: Order;
   invoiceUrl: string | null;
+  cryptoPayment: CryptoPayment | null;
 }
 
 export async function createOrder(
@@ -113,15 +130,52 @@ export async function createOrder(
     throw notFound(`Unknown product(s): ${missing.join(', ')}`);
   }
 
-  const currencies = new Set(products.map((p) => p.currency));
-  if (currencies.size > 1) {
+  // Every product must be priced in the same base currency. This is about the
+  // *base*, not about how the buyer pays: RUB-priced items can be charged in
+  // Stars or USDT, but a RUB item and a legacy XTR-priced item have no common
+  // base and cannot share one total.
+  const baseCurrencies = new Set(products.map((p) => p.currency));
+  if (baseCurrencies.size > 1) {
     throw new AppError(
       'CURRENCY_MISMATCH',
-      `An order cannot mix currencies: ${[...currencies].join(', ')}.`,
+      `An order cannot mix base currencies: ${[...baseCurrencies].join(', ')}.`,
     );
   }
 
-  const currency = currencySchema.parse(products[0]!.currency);
+  const baseCurrency = currencySchema.parse(products[0]!.currency);
+
+  /**
+   * Which currency the buyer is charged in.
+   *
+   * Products priced in RUB are converted to the requested payment currency.
+   * Products still priced directly in XTR (rows predating the RUB model) are
+   * charged as-is at a 1:1 rate — asking for USDT on those would need a rate
+   * from a base we do not have, so it is refused rather than guessed.
+   */
+  // `?? 'XTR'` covers a direct service call that omits the field. The route
+  // always has it, because zod defaults it — but a missing value here would
+  // reach Prisma as `undefined` and fail on a NOT NULL column, so the default
+  // belongs where the value is used rather than only where it is parsed.
+  const requestedCurrency: PaymentCurrency = input.paymentCurrency ?? 'XTR';
+  const chargeCurrency: PaymentCurrency =
+    baseCurrency === 'RUB' ? requestedCurrency : 'XTR';
+
+  if (baseCurrency !== 'RUB' && requestedCurrency !== 'XTR') {
+    throw new AppError(
+      'CURRENCY_MISMATCH',
+      `"${products[0]!.title}" is priced in ${baseCurrency} and can only be paid with Stars.`,
+    );
+  }
+
+  if (chargeCurrency === 'USDT' && !config.crypto.enabled) {
+    throw new AppError(
+      'CRYPTO_PAYMENTS_DISABLED',
+      'Оплата USDT сейчас недоступна.',
+    );
+  }
+
+  const rateRubMinorPerUnit =
+    baseCurrency === 'RUB' ? rateForCurrency(chargeCurrency, config.rates) : 1;
 
   const linesToCreate = products.map((product) => {
     const quantity = quantityByProduct.get(product.id)!;
@@ -152,10 +206,23 @@ export async function createOrder(
     // server's own resolution of the caller, so this cannot be influenced from
     // the client — and the Mini App calls the same shared function, so the
     // invoice always matches the screen.
-    const unitAmountMinor = effectiveUnitMinor(
+    const unitBaseRubMinor = effectiveUnitMinor(
       product.amountMinor,
       viewer.isSubscribedChannel,
     );
+
+    /**
+     * Convert per unit, then multiply — not the reverse.
+     *
+     * `unitAmountMinor × quantity` is what the order line stores and what the
+     * invoice charges, so the rounding has to happen at the unit. Converting the
+     * line total instead would leave the line's own numbers not multiplying out,
+     * and Telegram rejects an invoice whose prices do not sum to the total.
+     */
+    const unitAmountMinor =
+      baseCurrency === 'RUB'
+        ? payableMinorForCurrency(unitBaseRubMinor, chargeCurrency, config.rates)
+        : unitBaseRubMinor;
 
     return {
       productId: product.id,
@@ -163,6 +230,7 @@ export async function createOrder(
       unitAmountMinor,
       quantity,
       totalAmountMinor: unitAmountMinor * quantity,
+      unitBaseRubMinor,
       fulfillmentKind: kind,
     };
   });
@@ -186,14 +254,20 @@ export async function createOrder(
     (sum, line) => sum + line.totalAmountMinor,
     0,
   );
+  const totalBaseRubMinor = linesToCreate.reduce(
+    (sum, line) => sum + line.unitBaseRubMinor * line.quantity,
+    0,
+  );
 
   const order = await prisma.order.create({
     data: {
       reference: generateReference(),
       userId: viewer.id,
       status: 'PENDING',
-      currency,
+      currency: chargeCurrency,
       totalAmountMinor,
+      totalBaseRubMinor,
+      rateRubMinorPerUnit,
       comment: input.comment ?? null,
       invoicePayload: generateInvoicePayload(),
       lines: { create: linesToCreate },
@@ -204,11 +278,33 @@ export async function createOrder(
   // Free orders need no payment: deliver immediately.
   if (totalAmountMinor === 0) {
     const paid = await markOrderPaid({
+      kind: 'telegram',
       invoicePayload: order.invoicePayload,
       telegramPaymentChargeId: null,
       providerPaymentChargeId: null,
     });
-    return { order: paid ?? toApiOrder(order), invoiceUrl: null };
+    return {
+      order: paid ?? toApiOrder(order),
+      invoiceUrl: null,
+      cryptoPayment: null,
+    };
+  }
+
+  /**
+   * On-chain orders get an intent instead of an invoice link.
+   *
+   * Created here rather than in a second client round trip so an order can never
+   * exist in a state where it is payable in principle but has no address to pay
+   * to — the buyer would see a total and nowhere to send it.
+   */
+  if (chargeCurrency === 'USDT') {
+    const { createIntentForOrder } = await import('./crypto-payments.js');
+    const cryptoPayment = await createIntentForOrder(order.id);
+    return {
+      order: toApiOrder(order),
+      invoiceUrl: null,
+      cryptoPayment,
+    };
   }
 
   let invoiceUrl: string | null = null;
@@ -222,7 +318,7 @@ export async function createOrder(
               .map((l) => `${l.titleSnapshot} × ${l.quantity}`)
               .join(', '),
       payload: order.invoicePayload,
-      currency,
+      currency: chargeCurrency,
       lines: order.lines.map((line) => ({
         label: `${line.titleSnapshot} × ${line.quantity}`,
         amountMinor: line.totalAmountMinor,
@@ -235,7 +331,11 @@ export async function createOrder(
     });
   }
 
-  return { order: toApiOrder({ ...order, invoiceUrl }), invoiceUrl };
+  return {
+    order: toApiOrder({ ...order, invoiceUrl }),
+    invoiceUrl,
+    cryptoPayment: null,
+  };
 }
 
 /**
@@ -267,22 +367,44 @@ async function claimLicenseKey(
   return null;
 }
 
-export interface MarkPaidInput {
-  invoicePayload: string;
-  telegramPaymentChargeId: string | null;
-  providerPaymentChargeId: string | null;
-}
+/**
+ * How a settled payment identifies its order.
+ *
+ * A discriminated union rather than a widening set of nullable Telegram fields:
+ * Telegram finds the order by the payload it echoed back, an on-chain payment
+ * knows the order id directly, and the two carry different receipts. Collapsing
+ * them into one shape would mean every caller passing nulls for the half that
+ * does not apply, and nothing would stop a crypto settlement from arriving with a
+ * Telegram charge id attached.
+ */
+export type MarkPaidInput =
+  | {
+      kind: 'telegram';
+      invoicePayload: string;
+      telegramPaymentChargeId: string | null;
+      providerPaymentChargeId: string | null;
+    }
+  | {
+      kind: 'crypto';
+      orderId: string;
+    };
 
 /**
  * Marks an order paid and delivers the goods.
- * Safe to call repeatedly with the same payload: already-paid orders are
- * returned unchanged.
+ *
+ * Safe to call repeatedly for the same payment: an already-paid order is returned
+ * unchanged, and each line is skipped once it holds a delivered payload. Both
+ * guards matter — the first stops a replayed webhook, the second stops a partial
+ * delivery from re-claiming the keys it already handed over.
  */
 export async function markOrderPaid(
   input: MarkPaidInput,
 ): Promise<Order | null> {
   const order = await prisma.order.findUnique({
-    where: { invoicePayload: input.invoicePayload },
+    where:
+      input.kind === 'telegram'
+        ? { invoicePayload: input.invoicePayload }
+        : { id: input.orderId },
     include: { lines: { orderBy: { id: 'asc' } } },
   });
 
@@ -354,8 +476,14 @@ export async function markOrderPaid(
     data: {
       status: allDelivered ? 'PAID' : 'FAILED',
       paidAt: new Date(),
-      telegramPaymentChargeId: input.telegramPaymentChargeId,
-      providerPaymentChargeId: input.providerPaymentChargeId,
+      // Only Telegram carries these. An on-chain payment's receipt is its
+      // transaction rows, which already point at the intent.
+      ...(input.kind === 'telegram'
+        ? {
+            telegramPaymentChargeId: input.telegramPaymentChargeId,
+            providerPaymentChargeId: input.providerPaymentChargeId,
+          }
+        : {}),
     },
   });
 

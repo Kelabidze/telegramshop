@@ -16,6 +16,7 @@ import { after, before, describe, it } from 'node:test';
 import {
   effectiveUnitMinor,
   isAwaitingVariations,
+  starsForRubMinor,
   type Viewer,
 } from '@shop/shared';
 
@@ -310,10 +311,20 @@ describe('ordering', () => {
     const created = await orders.createOrder(viewer, {
       items: [{ productId: usaVariationId, quantity: 1 }],
     });
-    // 500 is the variation's stored club-tier price; this viewer is not a member.
+
+    // 500 is the variation's stored club-tier price, in the base currency (RUB
+    // kopecks); this viewer is not a member, so the standard price applies. That
+    // base amount is what the order snapshots — and the charged total is it
+    // converted to Stars, which is a different, smaller number.
+    const baseRubMinor = effectiveUnitMinor(500, false);
+    assert.equal(created.order.totalBaseRubMinor, baseRubMinor);
+    assert.equal(created.order.currency, 'XTR');
     assert.equal(
       created.order.totalAmountMinor,
-      effectiveUnitMinor(500, false),
+      starsForRubMinor(baseRubMinor, {
+        usdtRubMinorPerUnit: 8_600,
+        starRubMinorPerUnit: 130,
+      }),
     );
     assert.equal(created.order.lines[0]!.productId, usaVariationId);
   });
