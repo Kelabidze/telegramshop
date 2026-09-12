@@ -26,6 +26,9 @@ process.env.NODE_ENV = 'development';
 process.env.DATABASE_URL = `file:${dbFile}`;
 process.env.TELEGRAM_BOT_TOKEN = BOT_TOKEN;
 process.env.PAYMENT_PROVIDER = 'none'; // no network calls to Telegram
+// Rapira off for the same reason: this suite must not reach a live exchange, and
+// the rate it would fetch would make the payment-options assertions non-deterministic.
+process.env.RAPIRA_ENABLED = 'false';
 process.env.ALLOW_DEV_AUTH = 'false'; // force real signature checks
 process.env.ADMIN_TELEGRAM_IDS = '';
 process.env.LOG_LEVEL = 'silent';
@@ -146,7 +149,15 @@ describe('payment options', () => {
       'cardAvailable',
       'rates',
       'usdtAvailable',
+      'usdtRate',
     ]);
+
+    // `usdtRate` says where the number came from, and nothing more: no endpoint,
+    // no credentials, no raw provider payload.
+    const { usdtRate } = res.json();
+    if (usdtRate !== null) {
+      assert.deepEqual(Object.keys(usdtRate).sort(), ['display', 'side', 'source']);
+    }
     // Specifically not the xpub, the endpoints, or the contract.
     const raw = res.body.toLowerCase();
     for (const forbidden of ['xpub', 'http', 'rpc', '0x']) {

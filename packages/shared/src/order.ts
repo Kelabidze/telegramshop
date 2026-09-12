@@ -26,6 +26,20 @@ export const ORDER_STATUSES = [
 export const orderStatusSchema = z.enum(ORDER_STATUSES);
 export type OrderStatus = z.infer<typeof orderStatusSchema>;
 
+/**
+ * Where a snapshotted rate came from.
+ *
+ * RAPIRA — a live exchange quote. CONFIG — a configured constant. NONE — no
+ * conversion happened (roubles), or the order predates these columns.
+ */
+export const RATE_SOURCES = ['RAPIRA', 'CONFIG', 'NONE'] as const;
+export const rateSourceSchema = z.enum(RATE_SOURCES);
+export type RateSource = z.infer<typeof rateSourceSchema>;
+
+/** Side of the order book, when the source was an exchange. */
+export const rateSideSchema = z.enum(['ask', 'bid']).nullable();
+export type RateSide = z.infer<typeof rateSideSchema>;
+
 /** What the client is allowed to send. Prices are NEVER trusted from client. */
 export const cartLineInputSchema = z.object({
   productId: cuidSchema,
@@ -86,6 +100,15 @@ export const orderSchema = z.object({
   totalBaseRubMinor: amountMinorSchema,
   /** RUB kopecks per one unit of `currency`, as used at checkout. */
   rateRubMinorPerUnit: z.number().int().positive(),
+  /**
+   * Where that rate came from. Defaulted for orders created before the column.
+   *
+   * A live exchange quote and a configured constant are different claims about a
+   * price, and an order kept for months should say which one it was.
+   */
+  rateSource: rateSourceSchema.default('NONE'),
+  rateSide: rateSideSchema.default(null),
+  rateFetchedAt: z.string().datetime().nullable().default(null),
   comment: z.string().nullable(),
   createdAt: z.string().datetime(),
   paidAt: z.string().datetime().nullable(),

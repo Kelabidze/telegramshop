@@ -243,6 +243,18 @@ model Order {
   /// them, and a 1:1 rate is the honest reading of "we do not know".
   totalBaseRubMinor   Int @default(0)
   rateRubMinorPerUnit Int @default(1)
+  /// Where the rate came from: RAPIRA | CONFIG | NONE.
+  ///
+  /// Recorded because "1990 ₽ at 94.78" is only half the story — a rate read from a
+  /// live exchange and one read from a config file are different claims, and a
+  /// dispute about a price months later needs to know which it was. NONE is for
+  /// rails that convert nothing (roubles) or predate the column.
+  rateSource String @default("NONE")
+  /// Which side of the book, when the source was an exchange. ask | bid | null.
+  rateSide   String?
+  /// When the rate was fetched, as opposed to when the order was created. A gap
+  /// between the two is the cache doing its job; a large gap would be a bug.
+  rateFetchedAt DateTime?
 
   /// Opaque payload echoed back by Telegram in successful_payment.
   invoicePayload String  @unique

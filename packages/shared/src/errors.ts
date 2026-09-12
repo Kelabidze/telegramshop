@@ -25,6 +25,11 @@ export const API_ERROR_CODES = [
   'CARD_PAYMENTS_DISABLED',
   /** The payment gateway refused or could not be reached. */
   'PAYMENT_PROVIDER_ERROR',
+  /**
+   * No trustworthy exchange rate is available, so a USDT amount cannot be quoted.
+   * Roubles and Stars are unaffected.
+   */
+  'RATE_UNAVAILABLE',
   'RATE_LIMITED',
   'INTERNAL_ERROR',
 ] as const;
@@ -60,6 +65,8 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   // 502: the failure is upstream, and saying so distinguishes "the gateway is
   // unhappy" from "we sent something invalid".
   PAYMENT_PROVIDER_ERROR: 502,
+  // 503: the rail is temporarily unusable and retrying later is the right move.
+  RATE_UNAVAILABLE: 503,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
 };

@@ -76,6 +76,7 @@ export function CartScreen({
   const rates = optionsQuery.data?.rates ?? null;
   const usdtAvailable = optionsQuery.data?.usdtAvailable === true;
   const cardAvailable = optionsQuery.data?.cardAvailable === true;
+  const usdtRate = optionsQuery.data?.usdtRate ?? null;
 
   /**
    * Prices in both rails, from the same RUB base and the same rates the server
@@ -323,6 +324,19 @@ export function CartScreen({
             cardAvailable={cardAvailable}
             onChange={setPayWith}
           />
+          {/*
+            Named where the USDT figure comes from. A crypto amount that moves
+            between visits looks arbitrary unless the rate behind it is stated —
+            and the exact amount is fixed by the server when the payment opens,
+            not by this preview.
+          */}
+          {effectivePayWith === 'USDT' && usdtRate ? (
+            <p className="hint" style={{ marginTop: 10 }}>
+              Курс {usdtRate.display} ₽ за USDT
+              {usdtRate.source === 'RAPIRA' ? ' · Rapira' : ''}. Точная сумма
+              фиксируется при создании платежа.
+            </p>
+          ) : null}
         </div>
       ) : null}
 

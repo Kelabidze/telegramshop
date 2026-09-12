@@ -11,6 +11,8 @@ import {
   effectiveUnitMinor,
   fulfillmentKindSchema,
   orderStatusSchema,
+  rateSideSchema,
+  rateSourceSchema,
   payableMinorForCurrency,
   rateForCurrency,
 } from '@shop/shared';
@@ -31,7 +33,7 @@ import { payments } from '../payments/gateway.js';
  *     deliver goods twice.
  *  5. The club rate is applied from the viewer's verified membership, never
  *     from anything the client sends.
- *  6. A product has ONE price, in RUB. What the buyer is charged вЂ” Stars, USDT вЂ”
+ *  6. A product has ONE price, in RUB. What the buyer is charged Р Р†Р вЂљРІР‚Сњ Stars, USDT Р Р†Р вЂљРІР‚Сњ
  *     is derived here from the server's configured rate and then snapshotted, so
  *     a later rate change cannot rewrite an order that already exists.
  */
@@ -89,6 +91,13 @@ function toApiOrder(order: NonNullable<DbOrder>): Order {
     // column existed carry the default 1.
     rateRubMinorPerUnit:
       order.rateRubMinorPerUnit > 0 ? order.rateRubMinorPerUnit : 1,
+    // `catch` rather than a strict parse: rows predating these columns carry
+    // defaults, and an unreadable audit field must not make an order unreadable.
+    rateSource: rateSourceSchema.catch('NONE').parse(order.rateSource),
+    rateSide: rateSideSchema.catch(null).parse(order.rateSide),
+    rateFetchedAt: order.rateFetchedAt
+      ? order.rateFetchedAt.toISOString()
+      : null,
     comment: order.comment,
     createdAt: order.createdAt.toISOString(),
     paidAt: order.paidAt ? order.paidAt.toISOString() : null,
@@ -98,6 +107,39 @@ function toApiOrder(order: NonNullable<DbOrder>): Order {
 
 /** Exported so the crypto payment service maps orders the same way. */
 export { toApiOrder };
+
+/**
+ * The USDT rate to price this order at.
+ *
+ * Live from Rapira when enabled; the configured fallback otherwise. Imported
+ * lazily so the rate module РІР‚вЂќ and its network access РІР‚вЂќ is only loaded by the path
+ * that needs it, keeping Stars and card checkout free of it entirely.
+ */
+interface ResolvedRate {
+  rateRubMinorPerUnit: number;
+  source: 'RAPIRA' | 'CONFIG' | 'NONE';
+  side: 'ask' | 'bid' | null;
+  fetchedAt: Date | null;
+}
+
+async function resolveUsdtRate(): Promise<ResolvedRate> {
+  if (!config.rapira.enabled) {
+    return {
+      rateRubMinorPerUnit: config.rates.usdtRubMinorPerUnit,
+      source: 'CONFIG',
+      side: null,
+      fetchedAt: null,
+    };
+  }
+  const { getUsdtRubRate } = await import('../payments/rapira-rates.js');
+  const quote = await getUsdtRubRate();
+  return {
+    rateRubMinorPerUnit: quote.rateRubMinorPerUnit,
+    source: quote.source,
+    side: quote.side,
+    fetchedAt: quote.fetchedAt,
+  };
+}
 
 export interface CreatedOrder {
   order: Order;
@@ -151,11 +193,11 @@ export async function createOrder(
    *
    * Products priced in RUB are converted to the requested payment currency.
    * Products still priced directly in XTR (rows predating the RUB model) are
-   * charged as-is at a 1:1 rate вЂ” asking for USDT on those would need a rate
+   * charged as-is at a 1:1 rate Р Р†Р вЂљРІР‚Сњ asking for USDT on those would need a rate
    * from a base we do not have, so it is refused rather than guessed.
    */
   // `?? 'XTR'` covers a direct service call that omits the field. The route
-  // always has it, because zod defaults it вЂ” but a missing value here would
+  // always has it, because zod defaults it Р Р†Р вЂљРІР‚Сњ but a missing value here would
   // reach Prisma as `undefined` and fail on a NOT NULL column, so the default
   // belongs where the value is used rather than only where it is parsed.
   const requestedCurrency: PaymentCurrency = input.paymentCurrency ?? 'XTR';
@@ -172,19 +214,38 @@ export async function createOrder(
   if (chargeCurrency === 'USDT' && !config.crypto.enabled) {
     throw new AppError(
       'CRYPTO_PAYMENTS_DISABLED',
-      'Оплата USDT сейчас недоступна.',
+      'Р С›Р С—Р В»Р В°РЎвЂљР В° USDT РЎРѓР ВµР в„–РЎвЂЎР В°РЎРѓ Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р Р…Р В°.',
     );
   }
 
   if (chargeCurrency === 'RUB' && !config.cashera.enabled) {
     throw new AppError(
       'CARD_PAYMENTS_DISABLED',
-      'Оплата картой сейчас недоступна.',
+      'Р С›Р С—Р В»Р В°РЎвЂљР В° Р С”Р В°РЎР‚РЎвЂљР С•Р в„– РЎРѓР ВµР в„–РЎвЂЎР В°РЎРѓ Р Р…Р ВµР Т‘Р С•РЎРѓРЎвЂљРЎС“Р С—Р Р…Р В°.',
     );
   }
 
-  const rateRubMinorPerUnit =
-    baseCurrency === 'RUB' ? rateForCurrency(chargeCurrency, config.rates) : 1;
+  /**
+   * The rate this order is priced at, resolved once and then snapshotted.
+   *
+   * For USDT that means asking the exchange now РІР‚вЂќ and if no trustworthy rate is
+   * available, refusing rather than quoting a guess. Roubles and Stars do not
+   * consult it: RUB is the base currency (nothing converts), and Stars use a
+   * configured rate.
+   */
+  const resolvedRate: ResolvedRate =
+    baseCurrency === 'RUB'
+      ? chargeCurrency === 'USDT'
+        ? await resolveUsdtRate()
+        : {
+            rateRubMinorPerUnit: rateForCurrency(chargeCurrency, config.rates),
+            // Stars come from configuration; roubles convert nothing at all.
+            source: chargeCurrency === 'XTR' ? 'CONFIG' : 'NONE',
+            side: null,
+            fetchedAt: null,
+          }
+      : { rateRubMinorPerUnit: 1, source: 'NONE', side: null, fetchedAt: null };
+  const rateRubMinorPerUnit = resolvedRate.rateRubMinorPerUnit;
 
   const linesToCreate = products.map((product) => {
     const quantity = quantityByProduct.get(product.id)!;
@@ -204,7 +265,7 @@ export async function createOrder(
     if (product._count.variations > 0) {
       throw new AppError(
         'PRODUCT_UNAVAILABLE',
-        `"${product.title}": РІС‹Р±РµСЂРёС‚Рµ РєРѕРЅРєСЂРµС‚РЅС‹Р№ РІР°СЂРёР°РЅС‚ С‚РѕРІР°СЂР°.`,
+        `"${product.title}": Р В Р вЂ Р РЋРІР‚в„–Р В Р’В±Р В Р’ВµР РЋР вЂљР В РЎвЂР РЋРІР‚С™Р В Р’Вµ Р В РЎвЂќР В РЎвЂўР В Р вЂ¦Р В РЎвЂќР РЋР вЂљР В Р’ВµР РЋРІР‚С™Р В Р вЂ¦Р РЋРІР‚в„–Р В РІвЂћвЂ“ Р В Р вЂ Р В Р’В°Р РЋР вЂљР В РЎвЂР В Р’В°Р В Р вЂ¦Р РЋРІР‚С™ Р РЋРІР‚С™Р В РЎвЂўР В Р вЂ Р В Р’В°Р РЋР вЂљР В Р’В°.`,
       );
     }
 
@@ -213,7 +274,7 @@ export async function createOrder(
     // The stored price is the club tier. A verified channel member pays it as
     // is; everyone else pays the standard price derived from it. `viewer` is the
     // server's own resolution of the caller, so this cannot be influenced from
-    // the client вЂ” and the Mini App calls the same shared function, so the
+    // the client Р Р†Р вЂљРІР‚Сњ and the Mini App calls the same shared function, so the
     // invoice always matches the screen.
     const unitBaseRubMinor = effectiveUnitMinor(
       product.amountMinor,
@@ -221,16 +282,29 @@ export async function createOrder(
     );
 
     /**
-     * Convert per unit, then multiply вЂ” not the reverse.
+     * Convert per unit, then multiply Р Р†Р вЂљРІР‚Сњ not the reverse.
      *
-     * `unitAmountMinor Г— quantity` is what the order line stores and what the
+     * `unitAmountMinor Р вЂњРІР‚вЂќ quantity` is what the order line stores and what the
      * invoice charges, so the rounding has to happen at the unit. Converting the
      * line total instead would leave the line's own numbers not multiplying out,
      * and Telegram rejects an invoice whose prices do not sum to the total.
      */
+    /**
+     * Priced with the rate that was actually resolved above, not `config.rates`.
+     *
+     * These must be the same number: the snapshot records what the buyer was
+     * charged at, so pricing from one rate while recording another would make the
+     * order's own audit trail a lie — and would quote a live-rate rail at a stale
+     * configured rate.
+     */
     const unitAmountMinor =
       baseCurrency === 'RUB'
-        ? payableMinorForCurrency(unitBaseRubMinor, chargeCurrency, config.rates)
+        ? payableMinorForCurrency(unitBaseRubMinor, chargeCurrency, {
+            ...config.rates,
+            ...(chargeCurrency === 'USDT'
+              ? { usdtRubMinorPerUnit: rateRubMinorPerUnit }
+              : {}),
+          })
         : unitBaseRubMinor;
 
     return {
@@ -249,7 +323,7 @@ export async function createOrder(
    *
    * Unclaimed rows are the source of truth rather than a counter that can drift,
    * and keys currently held for another in-flight payment do not count as
-   * available вЂ” see `reserveLicenseKeys` for why holds exist at all.
+   * available Р Р†Р вЂљРІР‚Сњ see `reserveLicenseKeys` for why holds exist at all.
    */
   for (const line of linesToCreate) {
     if (line.fulfillmentKind !== 'LICENSE_KEY') continue;
@@ -280,6 +354,11 @@ export async function createOrder(
       totalAmountMinor,
       totalBaseRubMinor,
       rateRubMinorPerUnit,
+      // The snapshot: what the rate was, where it came from, and when it was read.
+      // Nothing downstream recomputes any of it.
+      rateSource: resolvedRate.source,
+      rateSide: resolvedRate.side,
+      rateFetchedAt: resolvedRate.fetchedAt,
       comment: input.comment ?? null,
       invoicePayload: generateInvoicePayload(),
       lines: { create: linesToCreate },
@@ -308,7 +387,7 @@ export async function createOrder(
    *
    * Created here rather than in a second client round trip so an order can never
    * exist in a state where it is payable in principle but has no address to pay
-   * to вЂ” the buyer would see a total and nowhere to send it.
+   * to Р Р†Р вЂљРІР‚Сњ the buyer would see a total and nowhere to send it.
    */
   if (chargeCurrency === 'USDT') {
     const { createIntentForOrder } = await import('./crypto-payments.js');
@@ -344,14 +423,14 @@ export async function createOrder(
       title: order.lines.length === 1 ? order.lines[0]!.titleSnapshot : 'Order',
       description:
         order.lines.length === 1
-          ? `${order.lines[0]!.titleSnapshot} Г— ${order.lines[0]!.quantity}`
+          ? `${order.lines[0]!.titleSnapshot} Р вЂњРІР‚вЂќ ${order.lines[0]!.quantity}`
           : order.lines
-              .map((l) => `${l.titleSnapshot} Г— ${l.quantity}`)
+              .map((l) => `${l.titleSnapshot} Р вЂњРІР‚вЂќ ${l.quantity}`)
               .join(', '),
       payload: order.invoicePayload,
       currency: chargeCurrency,
       lines: order.lines.map((line) => ({
-        label: `${line.titleSnapshot} Г— ${line.quantity}`,
+        label: `${line.titleSnapshot} Р вЂњРІР‚вЂќ ${line.quantity}`,
         amountMinor: line.totalAmountMinor,
       })),
     });
@@ -373,7 +452,7 @@ export async function createOrder(
 /**
  * Ceiling on reservation attempts.
  *
- * Generous relative to any real cart (50 lines × 99 units is the contract's
+ * Generous relative to any real cart (50 lines Р“вЂ” 99 units is the contract's
  * maximum), so a legitimate large order still gets every key it asked for, while
  * a pathological loop still terminates.
  */
@@ -403,14 +482,14 @@ export async function countAvailableKeys(
  * Holds keys for an order line until `until`.
  *
  * Why holds exist: a Stars invoice settles in seconds, so the gap between the
- * stock check and the claim was small enough to accept вЂ” the loser simply got an
+ * stock check and the claim was small enough to accept Р Р†Р вЂљРІР‚Сњ the loser simply got an
  * `OUT_OF_STOCK` error before paying anything. An on-chain payment takes minutes
  * and is irreversible, so the same race becomes: the buyer sends USDT, someone
  * else takes the last key, and the order lands in `FAILED` with money already
  * spent and no way to hand it back.
  *
  * The hold is advisory. It does not replace the conditional UPDATE in
- * `claimLicenseKey` вЂ” that is still what decides ownership, so overselling remains
+ * `claimLicenseKey` Р Р†Р вЂљРІР‚Сњ that is still what decides ownership, so overselling remains
  * impossible even if two holds somehow overlapped. This only stops a *later*
  * checkout from counting on a key that a *paying* buyer is waiting on.
  *
@@ -428,8 +507,8 @@ export async function reserveLicenseKeys(
   let reserved = 0;
   let needed = quantity;
   // Bounded, like the claim loop below. A lost race retries the slot, and without
-  // a ceiling a row that keeps matching the filter but refusing the UPDATE — a
-  // third party writing a past `reservedUntil` over and over — would spin here
+  // a ceiling a row that keeps matching the filter but refusing the UPDATE РІР‚вЂќ a
+  // third party writing a past `reservedUntil` over and over РІР‚вЂќ would spin here
   // forever, inside a request that is holding a checkout open.
   let attempts = 0;
 
@@ -505,7 +584,7 @@ async function claimLicenseKey(
      * This line's own hold first, then anything genuinely free.
      *
      * Order matters. A key held for THIS line was set aside precisely so this
-     * payment could complete, so it must be reachable here вЂ” while a key held for
+     * payment could complete, so it must be reachable here Р Р†Р вЂљРІР‚Сњ while a key held for
      * a *different* line belongs to another buyer whose funds may already be in
      * flight, and taking it would hand one key to two people's money.
      *
@@ -570,7 +649,7 @@ export type MarkPaidInput =
     }
   | {
       // The external gateway's own receipt lives on `CasheraTransaction`, so
-      // nothing extra needs carrying here — the order id is enough.
+      // nothing extra needs carrying here РІР‚вЂќ the order id is enough.
       kind: 'cashera';
       orderId: string;
     };
@@ -580,7 +659,7 @@ export type MarkPaidInput =
  *
  * Safe to call repeatedly for the same payment: an already-paid order is returned
  * unchanged, and each line is skipped once it holds a delivered payload. Both
- * guards matter вЂ” the first stops a replayed webhook, the second stops a partial
+ * guards matter Р Р†Р вЂљРІР‚Сњ the first stops a replayed webhook, the second stops a partial
  * delivery from re-claiming the keys it already handed over.
  */
 export async function markOrderPaid(

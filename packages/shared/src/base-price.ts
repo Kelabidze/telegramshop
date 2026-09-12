@@ -179,10 +179,31 @@ export const basePriceRubMinorSchema = amountMinorSchema;
  * and two requests to decide one control is one request too many.
  */
 export const paymentOptionsSchema = z.object({
+  /**
+   * Rates for previewing prices.
+   *
+   * `usdtRubMinorPerUnit` is the LIVE rate when one is available, so a preview
+   * matches what checkout will quote. It is still only a preview: the order is
+   * priced by the rate the server resolves at creation and snapshots, never by
+   * anything the client computed or echoed back.
+   */
   rates: paymentRatesSchema,
   /** False when the server has on-chain payments switched off. */
   usdtAvailable: z.boolean(),
   /** False when the card gateway is not configured. Defaulted for older clients. */
   cardAvailable: z.boolean().default(false),
+  /**
+   * Where the USDT rate in `rates` came from, so the UI can say so. Null when no
+   * live rate could be fetched — in which case USDT checkout will refuse too.
+   */
+  usdtRate: z
+    .object({
+      source: z.enum(['RAPIRA', 'CONFIG']),
+      side: z.enum(['ask', 'bid']).nullable(),
+      /** Major-unit string for display, e.g. "94.78". */
+      display: z.string(),
+    })
+    .nullable()
+    .default(null),
 });
 export type PaymentOptions = z.infer<typeof paymentOptionsSchema>;

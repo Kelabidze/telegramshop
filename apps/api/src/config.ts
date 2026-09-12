@@ -69,13 +69,41 @@ const envSchema = z.object({
 
   // ---- pricing -------------------------------------------------------------
   /**
-   * RUB per 1 USDT, as a whole number of roubles.
+   * Fallback RUB per 1 USDT, used only when no live rate is configured.
    *
-   * Configuration, not a live feed: no external rate provider is contacted. The
-   * value is snapshotted onto every order at checkout, so changing it here can
-   * never alter what an already-placed order asks for.
+   * The live rate comes from Rapira (see `RAPIRA_*` below). This remains as the
+   * value used when `RAPIRA_ENABLED=false` — a deliberately explicit switch, so a
+   * shop running without the exchange still has a defined rate rather than an
+   * accidental one.
    */
   USDT_RUB_RATE: z.coerce.number().int().min(1).max(100_000).default(86),
+
+  // ---- live rate (Rapira) --------------------------------------------------
+  /** Off means USDT prices use the fixed `USDT_RUB_RATE` above. */
+  RAPIRA_ENABLED: booleanish.default(true),
+  RAPIRA_BASE_URL: z.string().default('https://api.rapira.net'),
+  /**
+   * Which side of the order book to price from.
+   *
+   * `ask` by default: it is what someone buying USDT would pay, so pricing from it
+   * means the shop is not quoting a rate better than the one it could actually
+   * transact at.
+   */
+  RAPIRA_RATE_SIDE: z.enum(['ask', 'bid']).default('ask'),
+  /**
+   * How long a fetched rate stays usable.
+   *
+   * Short, because the number is a price. Long enough that a burst of checkouts
+   * does not become a burst of upstream requests, and that all of them quote the
+   * same rate.
+   */
+  RAPIRA_RATE_CACHE_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(3600)
+    .default(60),
+  RAPIRA_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
   /**
    * RUB per 1 Telegram Star, in kopecks.
    *
@@ -363,8 +391,20 @@ export const config = {
    * conversion is `rubMinor / rate` — one direction, no chance of inverting one.
    */
   rates: {
+    /**
+     * Fallback only. The live USDT rate comes from `payments/rapira-rates.ts`;
+     * this value is what a shop with `RAPIRA_ENABLED=false` prices at.
+     */
     usdtRubMinorPerUnit: raw.USDT_RUB_RATE * 100,
     starRubMinorPerUnit: raw.STAR_RUB_MINOR_RATE,
+  },
+
+  rapira: {
+    enabled: raw.RAPIRA_ENABLED,
+    baseUrl: raw.RAPIRA_BASE_URL.replace(/\/+$/, ''),
+    side: raw.RAPIRA_RATE_SIDE,
+    cacheMs: raw.RAPIRA_RATE_CACHE_SECONDS * 1000,
+    timeoutMs: raw.RAPIRA_TIMEOUT_MS,
   },
 
   cashera: {

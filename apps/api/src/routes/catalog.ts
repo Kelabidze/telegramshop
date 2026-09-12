@@ -39,10 +39,47 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
    * client cannot produce a wrong charge, only a confusing screen.
    */
   app.get('/payment-options', async () => {
+    /**
+     * The live USDT rate, when one can be had.
+     *
+     * Best effort: this endpoint also drives the cart preview for roubles and
+     * Stars, and neither depends on an exchange being reachable. A failure here
+     * degrades the USDT preview rather than the whole storefront — and USDT
+     * checkout refuses separately, so nothing is quoted from a rate that was not
+     * actually obtained.
+     */
+    let usdtRate: PaymentOptions['usdtRate'] = null;
+    let usdtRubMinorPerUnit = config.rates.usdtRubMinorPerUnit;
+
+    if (config.rapira.enabled) {
+      try {
+        const { getUsdtRubRate } = await import('../payments/rapira-rates.js');
+        const quote = await getUsdtRubRate();
+        usdtRubMinorPerUnit = quote.rateRubMinorPerUnit;
+        usdtRate = {
+          source: quote.source,
+          side: quote.side,
+          display: (quote.rateRubMinorPerUnit / 100).toFixed(2),
+        };
+      } catch {
+        // Leave `usdtRate` null: the client shows no rate and no USDT amount
+        // rather than one derived from a stale fallback.
+        usdtRate = null;
+      }
+    } else {
+      usdtRate = {
+        source: 'CONFIG',
+        side: null,
+        display: (usdtRubMinorPerUnit / 100).toFixed(2),
+      };
+    }
+
     const options: PaymentOptions = {
-      rates: config.rates,
-      usdtAvailable: config.crypto.enabled,
+      rates: { ...config.rates, usdtRubMinorPerUnit },
+      // A rail with no usable rate cannot quote a price, so it is not offered.
+      usdtAvailable: config.crypto.enabled && usdtRate !== null,
       cardAvailable: config.cashera.enabled,
+      usdtRate,
     };
     return options;
   });

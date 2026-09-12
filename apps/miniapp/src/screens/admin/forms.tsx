@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   emojiSchema,
   formatMoney,
   slugSchema,
+  starsForRubMinor,
+  usdtMinorForRubMinor,
   type Category,
   type Country,
   type FulfillmentKind,
@@ -18,7 +20,7 @@ import { haptic, showAlert, showConfirm } from '../../telegram/webapp.ts';
 /**
  * Editing forms shared by the staff screens.
  *
- * Extracted from `AdminCatalogScreen` when the «Абуз» section got a tab of its
+ * Extracted from `AdminCatalogScreen` when the В«РђР±СѓР·В» section got a tab of its
  * own: both tabs write the same `Product` and the same `Country` through the
  * same endpoints. Two copies of a form that has to clear `countryId` on a
  * non-variation, or write exactly one artwork source, would only stay correct
@@ -28,8 +30,8 @@ import { haptic, showAlert, showConfirm } from '../../telegram/webapp.ts';
 /**
  * Where the product being edited sits in the storefront.
  *
- * The catalog tab lets staff choose freely. The «Абуз» tab already knows — the
- * form was opened from a specific section root — so it fixes the placement
+ * The catalog tab lets staff choose freely. The В«РђР±СѓР·В» tab already knows вЂ” the
+ * form was opened from a specific section root вЂ” so it fixes the placement
  * rather than offering pickers that could silently move a variation into
  * another section or hang it off the wrong parent.
  *
@@ -45,6 +47,55 @@ export type ProductPlacement =
       /** Seeds the slug of a new variation, e.g. `bybit` -> `bybit-usa`. */
       slugPrefix?: string;
     };
+
+/**
+ * Read-only preview of what a rouble price becomes on the other rails.
+ *
+ * Deliberately not editable. One base price with derived amounts cannot drift; two
+ * editable prices would need to be kept in step by hand, and the stale one would be
+ * the one a buyer pays.
+ *
+ * Never required for saving: the rate query is allowed to fail, and the form works
+ * without it. An exchange being unreachable must not stop staff from setting a price.
+ */
+function PriceDerivationPreview({ baseRubMinor }: { baseRubMinor: number }) {
+  const optionsQuery = useQuery({
+    queryKey: ['payment-options'],
+    queryFn: () => api.getPaymentOptions(),
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+
+  const valid = Number.isInteger(baseRubMinor) && baseRubMinor > 0;
+  if (!valid) return null;
+
+  const rates = optionsQuery.data?.rates;
+  const usdtRate = optionsQuery.data?.usdtRate ?? null;
+  if (!rates) return null;
+
+  const stars = starsForRubMinor(baseRubMinor, rates);
+  const usdt = usdtMinorForRubMinor(baseRubMinor, rates);
+
+  return (
+    <div className="card stack" style={{ gap: 6, marginTop: 4 }}>
+      <div className="row">
+        <span className="hint">Telegram Stars</span>
+        <div className="spacer" />
+        <strong>{formatMoney(stars, 'XTR')}</strong>
+      </div>
+      <div className="row">
+        <span className="hint">USDT</span>
+        <div className="spacer" />
+        <strong>{usdtRate ? formatMoney(usdt, 'USDT') : 'вЂ”'}</strong>
+      </div>
+      <p className="hint" style={{ margin: 0 }}>
+        {usdtRate
+          ? `РљСѓСЂСЃ ${usdtRate.display} в‚Ѕ Р·Р° USDT${usdtRate.source === 'RAPIRA' ? ' В· Rapira' : ' В· РєРѕРЅС„РёРіСѓСЂР°С†РёСЏ'}. Р Р°СЃСЃС‡РёС‚С‹РІР°РµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё.`
+          : 'РљСѓСЂСЃ USDT РЅРµРґРѕСЃС‚СѓРїРµРЅ вЂ” С†РµРЅСѓ РІ СЂСѓР±Р»СЏС… СЌС‚Рѕ СЃРѕС…СЂР°РЅРёС‚СЊ РЅРµ РјРµС€Р°РµС‚.'}
+      </p>
+    </div>
+  );
+}
 
 export function ProductForm({
   product,
@@ -95,13 +146,13 @@ export function ProductForm({
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * A country belongs to an «Абуз» variation and nowhere else.
+   * A country belongs to an В«РђР±СѓР·В» variation and nowhere else.
    *
    * Both halves matter. A country on a product with no parent is not a variation
    * of anything, and a country on a SHOP product is worse than useless:
    * `listCountries` shows a country as soon as *any* active product references
    * it, so a stray label would put a flag in the storefront carousel whose
-   * filter — which matches parents through their variations — returns nothing.
+   * filter вЂ” which matches parents through their variations вЂ” returns nothing.
    * An empty filter reads as a broken screen.
    */
   const isCountryVariation = section === 'ABUSE' && parentId !== '';
@@ -110,12 +161,12 @@ export function ProductForm({
     mutationFn: async () => {
       const parsedSlug = slugSchema.safeParse(slug.trim());
       if (!parsedSlug.success) {
-        throw new Error('Slug: латиница, цифры и дефисы.');
+        throw new Error('Slug: Р»Р°С‚РёРЅРёС†Р°, С†РёС„СЂС‹ Рё РґРµС„РёСЃС‹.');
       }
-      if (!title.trim()) throw new Error('Название не может быть пустым.');
+      if (!title.trim()) throw new Error('РќР°Р·РІР°РЅРёРµ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.');
       const amountMinor = Number.parseInt(amount, 10);
       if (!Number.isInteger(amountMinor) || amountMinor < 0) {
-        throw new Error('Цена — целое неотрицательное число в минорных единицах.');
+        throw new Error('Р¦РµРЅР° вЂ” С†РµР»РѕРµ РЅРµРѕС‚СЂРёС†Р°С‚РµР»СЊРЅРѕРµ С‡РёСЃР»Рѕ РІ РјРёРЅРѕСЂРЅС‹С… РµРґРёРЅРёС†Р°С….');
       }
       const licenseKeys = keysText
         .split(/\r?\n/)
@@ -127,12 +178,12 @@ export function ProductForm({
       // component happened to check first.
       let artwork: { imageUrl: string | null; emoji: string | null };
       if (mediaMode === 'IMAGE') {
-        if (!imageUrl) throw new Error('Загрузите картинку или выберите эмодзи.');
+        if (!imageUrl) throw new Error('Р—Р°РіСЂСѓР·РёС‚Рµ РєР°СЂС‚РёРЅРєСѓ РёР»Рё РІС‹Р±РµСЂРёС‚Рµ СЌРјРѕРґР·Рё.');
         artwork = { imageUrl, emoji: null };
       } else {
         const parsedEmoji = emojiSchema.safeParse(emoji);
         if (!parsedEmoji.success) {
-          throw new Error(parsedEmoji.error.issues[0]?.message ?? 'Укажите эмодзи.');
+          throw new Error(parsedEmoji.error.issues[0]?.message ?? 'РЈРєР°Р¶РёС‚Рµ СЌРјРѕРґР·Рё.');
         }
         artwork = { imageUrl: null, emoji: parsedEmoji.data };
       }
@@ -185,13 +236,13 @@ export function ProductForm({
     onSuccess: (result) => {
       haptic('success');
       if ('keysAdded' in result && result.keysAdded > 0) {
-        showAlert(`Добавлено ключей: ${result.keysAdded}`);
+        showAlert(`Р”РѕР±Р°РІР»РµРЅРѕ РєР»СЋС‡РµР№: ${result.keysAdded}`);
       }
       onSaved();
     },
     onError: (err) => {
       haptic('error');
-      setError(err instanceof Error ? err.message : 'Не удалось сохранить.');
+      setError(err instanceof Error ? err.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕС…СЂР°РЅРёС‚СЊ.');
     },
   });
 
@@ -203,7 +254,7 @@ export function ProductForm({
     },
     onError: (err) => {
       haptic('error');
-      setError(err instanceof ApiError ? err.message : 'Не удалось скрыть товар.');
+      setError(err instanceof ApiError ? err.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєСЂС‹С‚СЊ С‚РѕРІР°СЂ.');
     },
   });
 
@@ -244,33 +295,33 @@ export function ProductForm({
       <strong>
         {isNew
           ? isCountryVariation
-            ? 'Новая вариация'
-            : 'Новый товар'
+            ? 'РќРѕРІР°СЏ РІР°СЂРёР°С†РёСЏ'
+            : 'РќРѕРІС‹Р№ С‚РѕРІР°СЂ'
           : isCountryVariation
-            ? 'Вариация'
-            : 'Товар'}
+            ? 'Р’Р°СЂРёР°С†РёСЏ'
+            : 'РўРѕРІР°СЂ'}
       </strong>
 
       {isCountryVariation ? (
-        <Field label="Страна">
+        <Field label="РЎС‚СЂР°РЅР°">
           <select
             className="input"
             value={countryId}
             onChange={(e) => selectCountry(e.target.value)}
           >
-            <option value="">Без страны</option>
+            <option value="">Р‘РµР· СЃС‚СЂР°РЅС‹</option>
             {countries.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.emoji ? `${c.emoji} ` : ''}
                 {c.title}
-                {c.isActive ? '' : ' (скрыта)'}
+                {c.isActive ? '' : ' (СЃРєСЂС‹С‚Р°)'}
               </option>
             ))}
           </select>
         </Field>
       ) : null}
 
-      <Field label="Название">
+      <Field label="РќР°Р·РІР°РЅРёРµ">
         <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
       </Field>
       <Field label="Slug">
@@ -281,7 +332,7 @@ export function ProductForm({
         silently multiplied by 100 would make "what did I type" and "what is
         stored" two different questions. The hint states the conversion instead.
       */}
-      <Field label="Базовая цена, копейки">
+      <Field label="Р‘Р°Р·РѕРІР°СЏ С†РµРЅР°, РєРѕРїРµР№РєРё">
         <input
           className="input"
           inputMode="numeric"
@@ -291,42 +342,52 @@ export function ProductForm({
       </Field>
       <p className="hint" style={{ margin: 0 }}>
         {amount && Number.isInteger(Number(amount)) && Number(amount) > 0
-          ? `Это ${formatMoney(Number(amount), 'RUB')}. Stars и USDT считаются от неё по курсу сервера.`
-          : 'В копейках: 129000 = 1290 ₽. Цены в Stars и USDT считаются от неё автоматически.'}
+          ? `Р­С‚Рѕ ${formatMoney(Number(amount), 'RUB')}. Stars Рё USDT СЃС‡РёС‚Р°СЋС‚СЃСЏ РѕС‚ РЅРµС‘ РїРѕ РєСѓСЂСЃСѓ СЃРµСЂРІРµСЂР°.`
+          : 'Р’ РєРѕРїРµР№РєР°С…: 129000 = 1290 в‚Ѕ. Р¦РµРЅС‹ РІ Stars Рё USDT СЃС‡РёС‚Р°СЋС‚СЃСЏ РѕС‚ РЅРµС‘ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё.'}
       </p>
+      {/*
+        Read-only derived prices, so staff can see what a rouble figure becomes on
+        the other rails before saving. There is deliberately no USDT input: two
+        editable prices for one product would need keeping in step by hand, and the
+        one nobody updated would be the one somebody paid.
+
+        Absent when the rate is unknown вЂ” and that never blocks saving, because a
+        rouble price must not depend on an exchange being reachable.
+      */}
+      <PriceDerivationPreview baseRubMinor={Number(amount)} />
       {amountHint ? <p className="hint" style={{ margin: 0 }}>{amountHint}</p> : null}
       {isSectionRoot ? (
         <p className="hint" style={{ margin: 0 }}>
-          Цена родителя не списывается: на витрине показывается «от X» по самой
-          дешёвой вариации. Оставьте 0.
+          Р¦РµРЅР° СЂРѕРґРёС‚РµР»СЏ РЅРµ СЃРїРёСЃС‹РІР°РµС‚СЃСЏ: РЅР° РІРёС‚СЂРёРЅРµ РїРѕРєР°Р·С‹РІР°РµС‚СЃСЏ В«РѕС‚ XВ» РїРѕ СЃР°РјРѕР№
+          РґРµС€С‘РІРѕР№ РІР°СЂРёР°С†РёРё. РћСЃС‚Р°РІСЊС‚Рµ 0.
         </p>
       ) : null}
 
       {/*
         Placement pickers appear only where the placement is a decision. In the
-        «Абуз» tab the section and the parent come from the row the form was
+        В«РђР±СѓР·В» tab the section and the parent come from the row the form was
         opened on.
       */}
       {placement.kind === 'choose' ? (
         <>
-          <Field label="Раздел">
+          <Field label="Р Р°Р·РґРµР»">
             <select
               className="input"
               value={section}
               onChange={(e) => setSection(e.target.value as ProductSection)}
             >
-              <option value="SHOP">Каталог</option>
-              <option value="ABUSE">Всё для Абуза</option>
+              <option value="SHOP">РљР°С‚Р°Р»РѕРі</option>
+              <option value="ABUSE">Р’СЃС‘ РґР»СЏ РђР±СѓР·Р°</option>
             </select>
           </Field>
 
-          <Field label="Категория">
+          <Field label="РљР°С‚РµРіРѕСЂРёСЏ">
             <select
               className="input"
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
             >
-              <option value="">Без категории</option>
+              <option value="">Р‘РµР· РєР°С‚РµРіРѕСЂРёРё</option>
               {placement.categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title}
@@ -340,34 +401,34 @@ export function ProductForm({
             variations: a variation of a variation has no meaning, and the
             storefront only ever renders one level.
           */}
-          <Field label="Вариант товара">
+          <Field label="Р’Р°СЂРёР°РЅС‚ С‚РѕРІР°СЂР°">
             <select
               className="input"
               value={parentId}
               onChange={(e) => setParentId(e.target.value)}
             >
-              <option value="">Самостоятельный товар</option>
+              <option value="">РЎР°РјРѕСЃС‚РѕСЏС‚РµР»СЊРЅС‹Р№ С‚РѕРІР°СЂ</option>
               {placement.parentOptions.map((p) => (
                 <option key={p.id} value={p.id}>
-                  Вариант: {p.title}
+                  Р’Р°СЂРёР°РЅС‚: {p.title}
                 </option>
               ))}
             </select>
           </Field>
 
           {/*
-            The country selector is for «Абуз» variations only — see
+            The country selector is for В«РђР±СѓР·В» variations only вЂ” see
             `isCountryVariation`. A country on a SHOP product would put a dead
             flag in the storefront carousel.
           */}
           {isCountryVariation ? (
-            <Field label="Страна варианта">
+            <Field label="РЎС‚СЂР°РЅР° РІР°СЂРёР°РЅС‚Р°">
               <select
                 className="input"
                 value={countryId}
                 onChange={(e) => setCountryId(e.target.value)}
               >
-                <option value="">Без страны</option>
+                <option value="">Р‘РµР· СЃС‚СЂР°РЅС‹</option>
                 {countries.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.emoji ? `${c.emoji} ` : ''}
@@ -380,19 +441,19 @@ export function ProductForm({
         </>
       ) : null}
 
-      <Field label="Выдача">
+      <Field label="Р’С‹РґР°С‡Р°">
         <select
           className="input"
           value={fulfillmentKind}
           onChange={(e) => setFulfillmentKind(e.target.value as FulfillmentKind)}
         >
-          <option value="LICENSE_KEY">Ключ активации</option>
-          <option value="FILE">Файл / ссылка на скачивание</option>
-          <option value="LINK">Постоянная ссылка</option>
+          <option value="LICENSE_KEY">РљР»СЋС‡ Р°РєС‚РёРІР°С†РёРё</option>
+          <option value="FILE">Р¤Р°Р№Р» / СЃСЃС‹Р»РєР° РЅР° СЃРєР°С‡РёРІР°РЅРёРµ</option>
+          <option value="LINK">РџРѕСЃС‚РѕСЏРЅРЅР°СЏ СЃСЃС‹Р»РєР°</option>
         </select>
       </Field>
       {fulfillmentKind === 'LICENSE_KEY' ? (
-        <Field label="Ключи (по одному в строке). Уже выданные не удаляются.">
+        <Field label="РљР»СЋС‡Рё (РїРѕ РѕРґРЅРѕРјСѓ РІ СЃС‚СЂРѕРєРµ). РЈР¶Рµ РІС‹РґР°РЅРЅС‹Рµ РЅРµ СѓРґР°Р»СЏСЋС‚СЃСЏ.">
           <textarea
             className="input"
             rows={4}
@@ -402,49 +463,49 @@ export function ProductForm({
           />
         </Field>
       ) : (
-        <Field label="Ссылка / payload (записывается, в списке не показывается)">
+        <Field label="РЎСЃС‹Р»РєР° / payload (Р·Р°РїРёСЃС‹РІР°РµС‚СЃСЏ, РІ СЃРїРёСЃРєРµ РЅРµ РїРѕРєР°Р·С‹РІР°РµС‚СЃСЏ)">
           <input
             className="input"
             value={staticPayload}
             onChange={(e) => setStaticPayload(e.target.value)}
-            placeholder="https://…"
+            placeholder="https://вЂ¦"
           />
         </Field>
       )}
-      <Field label="Оформление карточки">
+      <Field label="РћС„РѕСЂРјР»РµРЅРёРµ РєР°СЂС‚РѕС‡РєРё">
         <div className="row" style={{ gap: 8 }}>
           <button
             type="button"
             className={mediaMode === 'EMOJI' ? 'button' : 'button button--secondary'}
             onClick={() => setMediaMode('EMOJI')}
           >
-            Эмодзи
+            Р­РјРѕРґР·Рё
           </button>
           <button
             type="button"
             className={mediaMode === 'IMAGE' ? 'button' : 'button button--secondary'}
             onClick={() => setMediaMode('IMAGE')}
           >
-            Картинка
+            РљР°СЂС‚РёРЅРєР°
           </button>
         </div>
       </Field>
 
       {mediaMode === 'EMOJI' ? (
-        <Field label="Эмодзи для карточки">
+        <Field label="Р­РјРѕРґР·Рё РґР»СЏ РєР°СЂС‚РѕС‡РєРё">
           <input
             className="input"
             value={emoji}
             maxLength={8}
             onChange={(e) => setEmoji(e.target.value)}
-            placeholder="🎁"
+            placeholder="рџЋЃ"
           />
         </Field>
       ) : (
         <MediaPicker value={imageUrl} onChange={setImageUrl} shape="product" />
       )}
 
-      <Field label="Описание">
+      <Field label="РћРїРёСЃР°РЅРёРµ">
         <textarea
           className="input"
           rows={3}
@@ -458,7 +519,7 @@ export function ProductForm({
           checked={isActive}
           onChange={(e) => setIsActive(e.target.checked)}
         />
-        В продаже
+        Р’ РїСЂРѕРґР°Р¶Рµ
       </label>
       {error ? (
         <p className="hint" style={{ color: 'var(--zone-error)', margin: 0 }}>
@@ -472,10 +533,10 @@ export function ProductForm({
           disabled={mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          Сохранить
+          РЎРѕС…СЂР°РЅРёС‚СЊ
         </button>
         <button type="button" className="button button--secondary" onClick={onClose}>
-          Отмена
+          РћС‚РјРµРЅР°
         </button>
         <div className="spacer" />
         {!isNew && product.isActive ? (
@@ -485,13 +546,13 @@ export function ProductForm({
             disabled={hide.isPending}
             onClick={() => {
               void showConfirm(
-                'Скрыть товар из витрины? Заказы с ним останутся читаемыми.',
+                'РЎРєСЂС‹С‚СЊ С‚РѕРІР°СЂ РёР· РІРёС‚СЂРёРЅС‹? Р—Р°РєР°Р·С‹ СЃ РЅРёРј РѕСЃС‚Р°РЅСѓС‚СЃСЏ С‡РёС‚Р°РµРјС‹РјРё.',
               ).then((ok) => {
                 if (ok) hide.mutate();
               });
             }}
           >
-            Скрыть
+            РЎРєСЂС‹С‚СЊ
           </button>
         ) : null}
       </div>
@@ -519,9 +580,9 @@ export function CountryForm({
     mutationFn: async () => {
       const parsed = slugSchema.safeParse(slug.trim());
       if (!parsed.success) {
-        throw new Error('Slug: латиница, цифры и дефисы, например united-states.');
+        throw new Error('Slug: Р»Р°С‚РёРЅРёС†Р°, С†РёС„СЂС‹ Рё РґРµС„РёСЃС‹, РЅР°РїСЂРёРјРµСЂ united-states.');
       }
-      if (!title.trim()) throw new Error('Название не может быть пустым.');
+      if (!title.trim()) throw new Error('РќР°Р·РІР°РЅРёРµ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.');
       const fields = {
         title: title.trim(),
         slug: parsed.data,
@@ -549,14 +610,14 @@ export function CountryForm({
     },
     onError: (err) => {
       haptic('error');
-      setError(err instanceof ApiError ? err.message : 'Не удалось удалить.');
+      setError(err instanceof ApiError ? err.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ.');
     },
   });
 
   return (
     <div className="card stack" style={{ marginTop: 12 }}>
-      <strong>{isNew ? 'Новая страна' : 'Страна'}</strong>
-      <Field label="Название">
+      <strong>{isNew ? 'РќРѕРІР°СЏ СЃС‚СЂР°РЅР°' : 'РЎС‚СЂР°РЅР°'}</strong>
+      <Field label="РќР°Р·РІР°РЅРёРµ">
         <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
       </Field>
       <Field label="Slug">
@@ -567,13 +628,13 @@ export function CountryForm({
           placeholder="united-states"
         />
       </Field>
-      <Field label="Флаг (эмодзи)">
+      <Field label="Р¤Р»Р°Рі (СЌРјРѕРґР·Рё)">
         <input
           className="input"
           value={emoji}
           maxLength={8}
           onChange={(e) => setEmoji(e.target.value)}
-          placeholder="🇺🇸"
+          placeholder="рџ‡єрџ‡ё"
         />
       </Field>
       <label className="row" style={{ gap: 8 }}>
@@ -582,11 +643,11 @@ export function CountryForm({
           checked={isActive}
           onChange={(e) => setIsActive(e.target.checked)}
         />
-        Показывать в карусели
+        РџРѕРєР°Р·С‹РІР°С‚СЊ РІ РєР°СЂСѓСЃРµР»Рё
       </label>
       <p className="hint" style={{ margin: 0 }}>
-        Страна появится в карусели, только когда к ней привязан хотя бы один
-        активный вариант товара: пустой фильтр выглядит как сломанный экран.
+        РЎС‚СЂР°РЅР° РїРѕСЏРІРёС‚СЃСЏ РІ РєР°СЂСѓСЃРµР»Рё, С‚РѕР»СЊРєРѕ РєРѕРіРґР° Рє РЅРµР№ РїСЂРёРІСЏР·Р°РЅ С…РѕС‚СЏ Р±С‹ РѕРґРёРЅ
+        Р°РєС‚РёРІРЅС‹Р№ РІР°СЂРёР°РЅС‚ С‚РѕРІР°СЂР°: РїСѓСЃС‚РѕР№ С„РёР»СЊС‚СЂ РІС‹РіР»СЏРґРёС‚ РєР°Рє СЃР»РѕРјР°РЅРЅС‹Р№ СЌРєСЂР°РЅ.
       </p>
       {error ? (
         <p className="hint" style={{ color: 'var(--zone-error)', margin: 0 }}>
@@ -600,10 +661,10 @@ export function CountryForm({
           disabled={mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          Сохранить
+          РЎРѕС…СЂР°РЅРёС‚СЊ
         </button>
         <button type="button" className="button button--secondary" onClick={onClose}>
-          Отмена
+          РћС‚РјРµРЅР°
         </button>
         <div className="spacer" />
         {!isNew ? (
@@ -613,13 +674,13 @@ export function CountryForm({
             disabled={remove.isPending}
             onClick={() => {
               void showConfirm(
-                'Удалить страну? Варианты товаров останутся, но потеряют привязку.',
+                'РЈРґР°Р»РёС‚СЊ СЃС‚СЂР°РЅСѓ? Р’Р°СЂРёР°РЅС‚С‹ С‚РѕРІР°СЂРѕРІ РѕСЃС‚Р°РЅСѓС‚СЃСЏ, РЅРѕ РїРѕС‚РµСЂСЏСЋС‚ РїСЂРёРІСЏР·РєСѓ.',
               ).then((ok) => {
                 if (ok) remove.mutate();
               });
             }}
           >
-            Удалить
+            РЈРґР°Р»РёС‚СЊ
           </button>
         ) : null}
       </div>

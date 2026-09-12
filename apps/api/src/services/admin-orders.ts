@@ -4,6 +4,8 @@ import {
   currencySchema,
   fulfillmentKindSchema,
   orderStatusSchema,
+  rateSideSchema,
+  rateSourceSchema,
 } from '@shop/shared';
 import { prisma } from '../db.js';
 
@@ -58,6 +60,13 @@ export async function listAllOrders(
     totalBaseRubMinor: order.totalBaseRubMinor,
     rateRubMinorPerUnit:
       order.rateRubMinorPerUnit > 0 ? order.rateRubMinorPerUnit : 1,
+    // `catch` rather than a strict parse: rows predating these columns carry
+    // defaults, and an unreadable audit field must not make an order unreadable.
+    rateSource: rateSourceSchema.catch('NONE').parse(order.rateSource),
+    rateSide: rateSideSchema.catch(null).parse(order.rateSide),
+    rateFetchedAt: order.rateFetchedAt
+      ? order.rateFetchedAt.toISOString()
+      : null,
     comment: order.comment,
     createdAt: order.createdAt.toISOString(),
     paidAt: order.paidAt ? order.paidAt.toISOString() : null,
