@@ -3,14 +3,31 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App.tsx';
 import { ApiError } from './api/client.ts';
+import { decor } from './assets/index.ts';
 import { initializeWebApp } from './telegram/webapp.ts';
 import { applyTelegramTheme, watchTelegramTheme } from './telegram/theme.ts';
 import './styles.css';
+
+/**
+ * Points the decoration mount at its bundled file.
+ *
+ * Done from JavaScript so the URL comes from a Vite import and carries the content
+ * hash. Writing `url(./assets/decorations/tentacle-arc.svg)` in the stylesheet would
+ * work until someone renames the file, at which point it becomes a 404 that nothing
+ * catches — the decoration would simply stop appearing.
+ */
+function applyDecor(): void {
+  document.documentElement.style.setProperty(
+    '--zone-decor-tentacle',
+    `url(${decor.tentacleArc})`,
+  );
+}
 
 // Apply the theme and signal readiness before the first paint so the app never
 // flashes the wrong colours.
 applyTelegramTheme();
 watchTelegramTheme();
+applyDecor();
 initializeWebApp();
 
 const queryClient = new QueryClient({

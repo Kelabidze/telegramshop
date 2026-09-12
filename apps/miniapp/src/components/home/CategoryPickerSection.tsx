@@ -1,10 +1,6 @@
 import type { Category } from '@shop/shared';
+import { categoryIcons } from '../../assets/index.ts';
 import { haptic } from '../../telegram/webapp.ts';
-import {
-  IconCatalog,
-  IconTarget,
-  IconMediaPlaceholder,
-} from '../icons/index.tsx';
 
 /**
  * Category picker section: "Что ищешь?"
@@ -50,24 +46,21 @@ export function CategoryPickerSection({
 }
 
 /**
- * Maps categories to brand icons.
+ * Maps a category to its brand icon, falling back to the emoji staff chose.
  *
- * Uses the category emoji as fallback when no brand icon exists. The mapping
- * is based on slug rather than title, so it survives title changes and works
- * across languages if the shop ever becomes multilingual.
+ * Keyed by slug rather than title so it survives renames. The map lives in
+ * `assets/index.ts` alongside the files, and covers the seeded slugs as well as the
+ * ones the pack was drawn for — the previous inline map keyed only the latter, so on
+ * a seeded database every tile silently fell through to the emoji branch and three
+ * of its entries pointed at the picture-frame placeholder anyway.
+ *
+ * The emoji fallback stays: categories are staff-editable data, so one can always
+ * exist that no icon was drawn for.
  */
 function getCategoryIcon(category: Category): React.ReactNode {
-  const iconMap: Record<string, React.ReactNode> = {
-    'gift-codes': <IconCatalog />,
-    games: <IconCatalog />,
-    'app-store': <IconMediaPlaceholder />,
-    crypto: <IconTarget />,
-    software: <IconMediaPlaceholder />,
-    access: <IconTarget />,
-    web: <IconMediaPlaceholder />,
-    other: <IconMediaPlaceholder />,
-  };
-
-  // Use brand icon if available, otherwise fall back to emoji.
-  return iconMap[category.slug] ?? (category.emoji || '🗂');
+  const icon = categoryIcons[category.slug];
+  if (icon) {
+    return <img className="category-picker-card__glyph" src={icon} alt="" />;
+  }
+  return category.emoji || '🗂';
 }

@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
  * The key generator and the server must agree on what an address is.
  *
  * They compute addresses in two places: `crypto/addresses.ts` reads the xpub from
- * `config`, while `cli/crypto-keygen.ts` cannot вЂ” it is the thing producing the
+ * `config`, while `cli/crypto-keygen.ts` cannot — it is the thing producing the
  * key, so there is nothing configured yet. Two implementations of the same rule is
  * a real risk, and the failure mode is the worst one available: the operator
  * verifies the printed addresses against their wallet, the server then derives

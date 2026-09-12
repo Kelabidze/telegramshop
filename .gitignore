@@ -39,6 +39,12 @@ Thumbs.db
 *.tsbuildinfo
 .vite/
 
+# Asset pack deliveries. The individual files that the app uses are committed
+# under apps/miniapp/src/assets/ and public/; the archive itself is a delivery
+# vehicle and would otherwise ship 1.6 MB of duplicates, including the 1600x600
+# hero PNGs that belong in Admin/Media rather than in the bundle.
+ochkisk-zone-assets-v*.zip
+
 # Unrelated third-party checkout that lives inside the working tree. It was
 # once staged as a gitlink (mode 160000) without a .gitmodules entry, which
 # made every `git submodule` call exit 128 with "no submodule mapping found"

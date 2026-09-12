@@ -112,7 +112,16 @@ export const productInputSchema = z.object({
   ...productFields,
   // Defaults belong to creation only.
   description: productFields.description.default(''),
-  currency: currencySchema.default('XTR'),
+  /**
+   * RUB, matching the Prisma column default and the pricing model: a product has
+   * ONE price in roubles, and Stars/USDT are derived from it at checkout.
+   *
+   * This used to default to XTR. A caller that omitted the field silently created a
+   * legacy Stars-priced product, which cannot be paid by card or USDT at all
+   * (`CURRENCY_MISMATCH`) — and whose stored number is charged as whole Stars, so a
+   * price meant as roubles would be billed at roughly 1.3x.
+   */
+  currency: currencySchema.default('RUB'),
   fulfillmentKind: fulfillmentKindSchema.default('LICENSE_KEY'),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().min(0).max(10_000).default(0),

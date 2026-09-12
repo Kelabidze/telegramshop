@@ -152,28 +152,23 @@ export function ProductScreen({
 
   return (
     <div className="page">
+      {/*
+        One frame for all three cases, so the hero is the same height whether or not
+        a product has artwork. It used to be 1:1 for a real image and 16:9 for the
+        fallback, which made a product without a picture visibly shorter than its
+        neighbour and shifted everything below it.
+      */}
       {product.imageUrl ? (
         <img
+          className="product-hero"
           src={product.imageUrl}
           alt={product.title}
-          style={{
-            width: '100%',
-            aspectRatio: '1 / 1',
-            objectFit: 'cover',
-            borderRadius: 'var(--radius)',
-            marginBottom: 16,
-          }}
         />
       ) : (
         <div
-          className={`card${product.emoji ? '' : ' product-media-fallback'}`}
-          style={{
-            display: 'grid',
-            placeItems: 'center',
-            fontSize: 64,
-            aspectRatio: '16 / 9',
-            marginBottom: 16,
-          }}
+          className={`product-hero product-hero--empty${
+            product.emoji ? '' : ' product-media-fallback'
+          }`}
         >
           {/* Same three-step priority as the grid, so the card and the page it
               opens never disagree about what a product looks like. */}
@@ -181,7 +176,8 @@ export function ProductScreen({
         </div>
       )}
 
-      <h1 className="title">{product.title}</h1>
+      {/* The one thing this screen is about, so it takes the display tier. */}
+      <h1 className="display">{product.title}</h1>
       {product.subtitle ? (
         <p className="subtitle">{product.subtitle}</p>
       ) : null}

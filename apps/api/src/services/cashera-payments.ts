@@ -29,7 +29,7 @@ import { markOrderPaid } from './orders.js';
  * `external_id` for an order.
  *
  * The order id itself, prefixed. Derived rather than random so it is stable across
- * retries вЂ” that is what makes Cashera's idempotency usable вЂ” and so a support
+ * retries — that is what makes Cashera's idempotency usable — and so a support
  * question about an `external_id` maps back to an order without a lookup table.
  */
 export function externalIdForOrder(orderId: string): string {
@@ -69,7 +69,7 @@ function publicOrigin(): string {
   if (!origin) {
     throw new AppError(
       'CARD_PAYMENTS_DISABLED',
-      'РќРµ РЅР°СЃС‚СЂРѕРµРЅ РїСѓР±Р»РёС‡РЅС‹Р№ Р°РґСЂРµСЃ РґР»СЏ РѕР±СЂР°С‚РЅС‹С… РІС‹Р·РѕРІРѕРІ РїР»Р°С‚С‘Р¶РЅРѕРіРѕ С€Р»СЋР·Р°.',
+      'Не настроен публичный адрес для обратных вызовов платёжного шлюза.',
     );
   }
   return origin;
@@ -88,7 +88,7 @@ export async function createPaymentForOrder(
   if (!config.cashera.enabled) {
     throw new AppError(
       'CARD_PAYMENTS_DISABLED',
-      'РћРїР»Р°С‚Р° РєР°СЂС‚РѕР№ СЃРµР№С‡Р°СЃ РЅРµРґРѕСЃС‚СѓРїРЅР°.',
+      'Оплата картой сейчас недоступна.',
     );
   }
 
@@ -114,13 +114,13 @@ export async function createPaymentForOrder(
   if (order.status !== 'PENDING') {
     throw new AppError(
       'ORDER_NOT_PAYABLE',
-      `Р—Р°РєР°Р· СѓР¶Рµ РІ СЃРѕСЃС‚РѕСЏРЅРёРё ${order.status} Рё РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕРїР»Р°С‡РµРЅ.`,
+      `Заказ уже в состоянии ${order.status} и не может быть оплачен.`,
     );
   }
   if (order.currency !== 'RUB') {
     throw new AppError(
       'CURRENCY_MISMATCH',
-      `Р—Р°РєР°Р· РѕС„РѕСЂРјР»РµРЅ РІ ${order.currency}, Р° РЅРµ РІ RUB.`,
+      `Заказ оформлен в ${order.currency}, а не в RUB.`,
     );
   }
 
@@ -128,8 +128,8 @@ export async function createPaymentForOrder(
   const origin = publicOrigin();
   const description =
     order.lines.length === 1
-      ? `${order.lines[0]!.titleSnapshot} Г— ${order.lines[0]!.quantity}`
-      : `Р—Р°РєР°Р· в„–${order.reference}`;
+      ? `${order.lines[0]!.titleSnapshot} × ${order.lines[0]!.quantity}`
+      : `Заказ №${order.reference}`;
 
   const dto = await createTransaction({
     // The order's own total, in the unit it is already stored in. No conversion
@@ -148,7 +148,7 @@ export async function createPaymentForOrder(
   if (!dto.uuid) {
     throw new AppError(
       'PAYMENT_PROVIDER_ERROR',
-      'РџР»Р°С‚С‘Р¶РЅС‹Р№ С€Р»СЋР· РЅРµ РІРµСЂРЅСѓР» РёРґРµРЅС‚РёС„РёРєР°С‚РѕСЂ С‚СЂР°РЅР·Р°РєС†РёРё.',
+      'Платёжный шлюз не вернул идентификатор транзакции.',
     );
   }
 
@@ -173,7 +173,7 @@ export async function createPaymentForOrder(
     },
     update: {
       // Refresh the link: a re-created transaction can carry a new one. The status
-      // is deliberately NOT taken from this response вЂ” a webhook may already have
+      // is deliberately NOT taken from this response — a webhook may already have
       // moved it on, and a stale `pending` here would undo that.
       paymentUrl: dto.payment_url ?? undefined,
       uuid: dto.uuid,
@@ -216,7 +216,7 @@ export async function getPaymentByOrderId(
  * Constant-time credential check for an inbound webhook.
  *
  * Length is compared first and both operands are hashed to a fixed width, because
- * `timingSafeEqual` throws on a length mismatch вЂ” and the throw itself would leak
+ * `timingSafeEqual` throws on a length mismatch — and the throw itself would leak
  * the expected length. Comparing byte-for-byte in JS would leak it through timing.
  */
 function secretsMatch(provided: string | undefined, expected: string): boolean {
@@ -256,7 +256,7 @@ export type WebhookOutcome =
  * Order of operations matters and is deliberate:
  *
  *  1. Claim the event `(uuid, status)`. A unique constraint arbitrates concurrent
- *     duplicates вЂ” two simultaneous deliveries cannot both proceed.
+ *     duplicates — two simultaneous deliveries cannot both proceed.
  *  2. Find the transaction and its order by our own `external_id`.
  *  3. Verify amount and currency against the order.
  *  4. Only for `paid`, settle through the shared `markOrderPaid`.
@@ -337,7 +337,7 @@ export async function handleWebhook(
   /**
    * Verify the money before shipping.
    *
-   * The webhook is authenticated, but authentication only proves who sent it вЂ” not
+   * The webhook is authenticated, but authentication only proves who sent it — not
    * that the figures agree with what this shop asked for. A mismatch is a
    * configuration or integration fault, and shipping on it would be shipping for a
    * price nobody agreed to.
@@ -350,8 +350,8 @@ export async function handleWebhook(
   }
 
   /**
-   * Settle. `markOrderPaid` is idempotent вЂ” an already-paid order returns unchanged
-   * and each line is skipped once delivered вЂ” so a replay that slipped past the
+   * Settle. `markOrderPaid` is idempotent — an already-paid order returns unchanged
+   * and each line is skipped once delivered — so a replay that slipped past the
    * event guard still cannot hand over a second key.
    */
   const paid = await markOrderPaid({ kind: 'cashera', orderId: row.orderId });
@@ -375,7 +375,7 @@ function parsePaidAt(value: string | null | undefined): Date | null {
  *
  * The recovery path for a webhook that never arrived. Reuses `handleWebhook`, so a
  * status learned by polling goes through exactly the same verification and
- * deduplication as one that was pushed вЂ” two code paths to settle an order would be
+ * deduplication as one that was pushed — two code paths to settle an order would be
  * two chances to get the checks wrong.
  */
 export async function refreshFromGateway(

@@ -62,6 +62,9 @@ const REQUIRED_BUILD_OUTPUTS = [
   // server if they must — though generating keys belongs on a trusted machine,
   // not in a server's shell history.
   'apps/api/dist/cli/crypto-keygen.js',
+  // Needed on the server: the legacy XTR catalog can only be repriced where the
+  // production database actually lives.
+  'apps/api/dist/cli/migrate-product-currency.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',
 ];

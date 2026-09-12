@@ -9,7 +9,7 @@ import { after, before, describe, it } from 'node:test';
  * The on-chain payment lifecycle, end to end against a real SQLite database.
  *
  * The chain itself is the one thing not real here: there is no way to make BSC
- * finalise a block on demand, so `CryptoTransaction` rows are written directly вЂ”
+ * finalise a block on demand, so `CryptoTransaction` rows are written directly —
  * exactly what the monitor does after parsing a log. Log parsing, failover and
  * finality resolution are covered separately in `chain.test.ts`; what this file
  * asserts is what happens to an order once transfers are on record.
@@ -31,7 +31,7 @@ const RATES: PaymentRates = {
   starRubMinorPerUnit: 130,
 };
 
-/** The base (club-tier) price of the RUB-priced fixture: 1290 в‚Ѕ. */
+/** The base (club-tier) price of the RUB-priced fixture: 1290 ₽. */
 const BASE_RUB_MINOR = 129_000;
 
 const workDir = mkdtempSync(path.join(tmpdir(), 'shop-crypto-test-'));
@@ -116,7 +116,7 @@ before(async () => {
     data: { slug: 'crypto-cat', title: 'Crypto', sortOrder: 1 },
   });
 
-  // 1290 в‚Ѕ base price. At 86 в‚Ѕ/USDT that is exactly 15.00 USDT вЂ” a clean number
+  // 1290 ₽ base price. At 86 ₽/USDT that is exactly 15.00 USDT — a clean number
   // to reason about, chosen so the expected wei is unambiguous.
   const usdtProduct = await prisma.product.create({
     data: {
@@ -174,7 +174,7 @@ after(async () => {
  * `POST /api/orders` is rate limited to 20/minute in production, and this file
  * places far more than that. Lowering the limit for tests would stop asserting
  * the real configuration, so the route is exercised by the handful of HTTP tests
- * below and the rest of the lifecycle goes straight at the service вЂ” the same
+ * below and the rest of the lifecycle goes straight at the service — the same
  * split `server.test.ts` already uses for club-tier pricing.
  */
 async function placeOrder(
@@ -204,7 +204,7 @@ async function placeOrder(
       isAdmin: false,
       createdAt: user.createdAt.toISOString(),
       // Club membership is resolved from Telegram during authentication, and no
-      // club channel is configured here вЂ” so it is set explicitly. The stored
+      // club channel is configured here — so it is set explicitly. The stored
       // price IS the club tier, and a non-member pays the standard price derived
       // from it, which is why the two cases produce different USDT amounts.
       isSubscribedChannel: options.isSubscribedChannel ?? false,
@@ -260,7 +260,7 @@ function randomHex(length: number): string {
 
 describe('USDT checkout: order creation', () => {
   it('derives the USDT total from the RUB base price and snapshots the rate', async () => {
-    // A club member pays the stored base price: 1290 в‚Ѕ / 86 = exactly 15.00 USDT.
+    // A club member pays the stored base price: 1290 ₽ / 86 = exactly 15.00 USDT.
     const { order, cryptoPayment, invoiceUrl } = await placeOrder(
       'USDT',
       usdtProductId,
@@ -284,7 +284,7 @@ describe('USDT checkout: order creation', () => {
 
   it('charges a non-member the standard price, converted', async () => {
     // The club tier survives the currency change: the stored price is the member
-    // price, and a guest pays the standard price derived from it вЂ” then that is
+    // price, and a guest pays the standard price derived from it — then that is
     // what gets converted, not the other way round.
     const { order } = await placeOrder('USDT');
 
@@ -350,7 +350,7 @@ describe('USDT checkout: order creation', () => {
     const { order } = await placeOrder('USDT', usdtProductId, 3);
 
     // Rounding happens per unit, then multiplies. Converting the line total
-    // instead would leave the line's own numbers not multiplying out вЂ” and
+    // instead would leave the line's own numbers not multiplying out — and
     // Telegram rejects an invoice whose prices do not sum to its total.
     const unit = expectedUsdtMinor(BASE_RUB_MINOR, false);
     assert.equal(order.totalAmountMinor, unit * 3);
@@ -558,7 +558,7 @@ describe('USDT checkout: idempotency', () => {
     );
 
     // A different log in the SAME transaction is a different payment and must be
-    // allowed вЂ” which is why the key is the pair, not the hash alone.
+    // allowed — which is why the key is the pair, not the hash alone.
     await recordTransfer(cryptoPayment.id, '2000', { txHash, logIndex: 1 });
 
     const count = await prisma.cryptoTransaction.count({ where: { txHash } });
@@ -732,7 +732,7 @@ describe('USDT checkout: stock is held while payment is in flight', () => {
     assert.ok(first.cryptoPayment);
 
     // Second buyer tries the same product. Without a hold this would succeed, and
-    // whichever of the two paid second would land in FAILED вЂ” after sending
+    // whichever of the two paid second would land in FAILED — after sending
     // irreversible funds.
     await assert.rejects(
       () => placeOrder('USDT', productId, 1, { telegramId: BUYER_ID + 20 }),
@@ -836,13 +836,13 @@ describe('USDT checkout: stock is held while payment is in flight', () => {
     /*
      * Regression: the reservation loop used to decrement its own counter on a lost
      * race, with no ceiling. A row that kept matching the filter but refusing the
-     * conditional UPDATE would spin forever вЂ” inside the request holding a
+     * conditional UPDATE would spin forever — inside the request holding a
      * checkout open. The bound is what makes this test finish at all.
      */
     const productId = await seedScarceProduct('scarce-bounded');
     const { reserveLicenseKeys } = await import('./services/orders.ts');
 
-    // The fixture product has no order yet вЂ” the hold needs a line to hang on.
+    // The fixture product has no order yet — the hold needs a line to hang on.
     const user = await prisma.user.findFirstOrThrow();
     const order = await prisma.order.create({
       data: {
@@ -882,7 +882,7 @@ describe('USDT checkout: stock is held while payment is in flight', () => {
   });
 
   it('does not hold stock for a Stars order', async () => {
-    // Stars settle in seconds, so the race was already acceptable there вЂ” and a
+    // Stars settle in seconds, so the race was already acceptable there — and a
     // hold would make the common path slower for no benefit.
     const productId = await seedScarceProduct('scarce-stars');
     await placeOrder('XTR', productId);

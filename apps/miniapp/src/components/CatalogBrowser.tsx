@@ -2,8 +2,10 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { Category, ProductSection } from '@shop/shared';
 import { api } from '../api/client.ts';
+import { emptyArt } from '../assets/index.ts';
 import {
   CategorySkeletonGrid,
+  EmptyArt,
   EmptyState,
   ErrorState,
   ProductSkeletonGrid,
@@ -175,7 +177,7 @@ export function CatalogBrowser({
 
       {productsQuery.data?.length === 0 ? (
         <EmptyState
-          emoji="🔍"
+          art={<EmptyArt src={emptyArt.search} />}
           title="Товаров нет"
           description="В этой категории пока пусто. Загляните позже."
         />

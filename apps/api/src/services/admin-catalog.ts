@@ -13,7 +13,7 @@
   productSectionSchema,
 } from '@shop/shared';
 import { prisma } from '../db.js';
-import { conflict, notFound } from '../errors.js';
+import { conflict, notFound, validationError } from '../errors.js';
 
 /**
  * Catalog management (staff writes).
@@ -239,6 +239,31 @@ export async function updateProduct(
 ): Promise<ProductWriteResult> {
   const { licenseKeys, ...fields } = input;
   const data = definedFields(fields);
+
+  // Repricing a legacy Stars-priced product needs an explicit currency.
+  //
+  // The stored integer means different things per currency: on a RUB product it is
+  // kopecks, on a legacy XTR one it is whole Stars. Staff typing "1290" into the
+  // price field is thinking in roubles, but on an XTR row that becomes 1290 Stars —
+  // roughly 1677 ₽, billed silently. The admin form does not send `currency` on
+  // update, so nothing else would catch it.
+  //
+  // Refusing is the only safe answer: this cannot be guessed, and picking either
+  // reading would misprice real money. Sending `currency` alongside the amount is
+  // the deliberate conversion, and `migrate-product-currency` does it in bulk.
+  if (data.amountMinor !== undefined && data.currency === undefined) {
+    const existing = await prisma.product.findUnique({
+      where: { id },
+      select: { currency: true, title: true },
+    });
+    if (existing && existing.currency !== 'RUB') {
+      throw validationError(
+        `"${existing.title}" is still priced in ${existing.currency}, where the amount means whole Stars rather than kopecks. ` +
+          'Send `currency` together with `amountMinor` to state which unit the new price is in.',
+        { currency: `product is priced in ${existing.currency}` },
+      );
+    }
+  }
 
   try {
     // An update with no fields is still valid: the caller may only be adding

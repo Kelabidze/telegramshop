@@ -22,12 +22,12 @@ function fakeLicenseKey(prefix: string): string {
 }
 
 const categories = [
-  { slug: 'templates', title: 'РЁР°Р±Р»РѕРЅС‹', emoji: 'рџЋЁ', sortOrder: 1 },
-  { slug: 'courses', title: 'РљСѓСЂСЃС‹', emoji: 'рџЋ“', sortOrder: 2 },
-  { slug: 'tools', title: 'РРЅСЃС‚СЂСѓРјРµРЅС‚С‹', emoji: 'рџ› ', sortOrder: 3 },
-  { slug: 'ai', title: 'РР', emoji: 'рџ¤–', sortOrder: 4 },
-  { slug: 'appstore-cards', title: 'РљР°СЂС‚С‹ AppStore', emoji: 'пЈї', sortOrder: 5 },
-  { slug: 'digital-cards', title: 'Р¦РёС„СЂРѕРІС‹Рµ РєР°СЂС‚С‹', emoji: 'рџ’і', sortOrder: 6 },
+  { slug: 'templates', title: 'Шаблоны', emoji: '🎨', sortOrder: 1 },
+  { slug: 'courses', title: 'Курсы', emoji: '🎓', sortOrder: 2 },
+  { slug: 'tools', title: 'Инструменты', emoji: '🛠', sortOrder: 3 },
+  { slug: 'ai', title: 'ИИ', emoji: '🤖', sortOrder: 4 },
+  { slug: 'appstore-cards', title: 'Карты AppStore', emoji: '', sortOrder: 5 },
+  { slug: 'digital-cards', title: 'Цифровые карты', emoji: '💳', sortOrder: 6 },
 ];
 
 // Administrators come from ADMIN_TELEGRAM_IDS, never from a constant in this
@@ -42,7 +42,7 @@ interface SeedProductBase {
   subtitle: string;
   description: string;
   /**
-   * Base price in RUB kopecks вЂ” the one price a product has.
+   * Base price in RUB kopecks — the one price a product has.
    *
    * What a buyer pays in Stars or USDT is derived from this at checkout with the
    * server's configured rates, so seeding a single figure is enough.
@@ -56,7 +56,7 @@ interface SeedProductBase {
 /**
  * Stock is rows in LicenseKey, so a keyed product declares how many keys to
  * keep unclaimed; the others carry the payload they hand out. Splitting the two
- * shapes lets the compiler вЂ” rather than a cast вЂ” guarantee that a keyed
+ * shapes lets the compiler — rather than a cast — guarantee that a keyed
  * product never gets a staticPayload and vice versa.
  */
 type SeedProduct = SeedProductBase &
@@ -71,11 +71,11 @@ type SeedProduct = SeedProductBase &
 const products: SeedProduct[] = [
   {
     slug: 'notion-dashboard',
-    title: 'Notion-РґР°С€Р±РѕСЂРґ',
-    subtitle: 'Р›РёС‡РЅР°СЏ РїСЂРѕРґСѓРєС‚РёРІРЅРѕСЃС‚СЊ',
+    title: 'Notion-дашборд',
+    subtitle: 'Личная продуктивность',
     description:
-      'Р“РѕС‚РѕРІС‹Р№ С€Р°Р±Р»РѕРЅ Notion: С†РµР»Рё, Р·Р°РґР°С‡Рё, РїСЂРёРІС‹С‡РєРё Рё Р±СЋРґР¶РµС‚ РІ РѕРґРЅРѕРј РјРµСЃС‚Рµ. ' +
-      'РџРѕСЃР»Рµ РѕРїР»Р°С‚С‹ РІС‹ РїРѕР»СѓС‡РёС‚Рµ РїРµСЂСЃРѕРЅР°Р»СЊРЅС‹Р№ РєР»СЋС‡ Р°РєС‚РёРІР°С†РёРё.',
+      'Готовый шаблон Notion: цели, задачи, привычки и бюджет в одном месте. ' +
+      'После оплаты вы получите персональный ключ активации.',
     amountMinor: 19_500,
     compareAtMinor: 32_500,
     categorySlug: 'templates',
@@ -87,10 +87,10 @@ const products: SeedProduct[] = [
   {
     slug: 'figma-ui-kit',
     title: 'Figma UI Kit',
-    subtitle: '120+ РєРѕРјРїРѕРЅРµРЅС‚РѕРІ',
+    subtitle: '120+ компонентов',
     description:
-      'РќР°Р±РѕСЂ РєРѕРјРїРѕРЅРµРЅС‚РѕРІ РґР»СЏ Р±С‹СЃС‚СЂРѕРіРѕ РїСЂРѕС‚РѕС‚РёРїРёСЂРѕРІР°РЅРёСЏ РјРѕР±РёР»СЊРЅС‹С… РёРЅС‚РµСЂС„РµР№СЃРѕРІ. ' +
-      'Auto-layout, variants, С‚С‘РјРЅР°СЏ С‚РµРјР°.',
+      'Набор компонентов для быстрого прототипирования мобильных интерфейсов. ' +
+      'Auto-layout, variants, тёмная тема.',
     amountMinor: 39_000,
     compareAtMinor: null,
     categorySlug: 'templates',
@@ -101,11 +101,11 @@ const products: SeedProduct[] = [
   },
   {
     slug: 'telegram-bot-course',
-    title: 'РљСѓСЂСЃ РїРѕ Telegram-Р±РѕС‚Р°Рј',
-    subtitle: '6 С‡Р°СЃРѕРІ РІРёРґРµРѕ',
+    title: 'Курс по Telegram-ботам',
+    subtitle: '6 часов видео',
     description:
-      'РћС‚ РїРµСЂРІРѕРіРѕ /start РґРѕ РїР»Р°С‚РµР¶РµР№ Рё РґРµРїР»РѕСЏ. РџСЂР°РєС‚РёС‡РµСЃРєРёРµ РїСЂРёРјРµСЂС‹ РЅР° TypeScript. ' +
-      'Р”РѕСЃС‚СѓРї РІС‹РґР°С‘С‚СЃСЏ СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ РѕРїР»Р°С‚С‹.',
+      'От первого /start до платежей и деплоя. Практические примеры на TypeScript. ' +
+      'Доступ выдаётся сразу после оплаты.',
     amountMinor: 65_000,
     compareAtMinor: 104_000,
     categorySlug: 'courses',
@@ -115,11 +115,11 @@ const products: SeedProduct[] = [
   },
   {
     slug: 'seo-checklist',
-    title: 'SEO-С‡РµРєР»РёСЃС‚',
-    subtitle: 'PDF, 32 СЃС‚СЂР°РЅРёС†С‹',
+    title: 'SEO-чеклист',
+    subtitle: 'PDF, 32 страницы',
     description:
-      'РџРѕС€Р°РіРѕРІС‹Р№ Р°СѓРґРёС‚ СЃР°Р№С‚Р°: С‚РµС…РЅРёС‡РµСЃРєРёРµ РѕС€РёР±РєРё, РєРѕРЅС‚РµРЅС‚, СЃСЃС‹Р»РєРё. ' +
-      'РЎСЃС‹Р»РєР° РЅР° СЃРєР°С‡РёРІР°РЅРёРµ РїСЂРёС…РѕРґРёС‚ РІ С‡Р°С‚.',
+      'Пошаговый аудит сайта: технические ошибки, контент, ссылки. ' +
+      'Ссылка на скачивание приходит в чат.',
     amountMinor: 13_000,
     compareAtMinor: null,
     categorySlug: 'tools',
@@ -129,11 +129,11 @@ const products: SeedProduct[] = [
   },
   {
     slug: 'starter-pack',
-    title: 'РЎС‚Р°СЂС‚РѕРІС‹Р№ РЅР°Р±РѕСЂ',
-    subtitle: 'Р‘РµСЃРїР»Р°С‚РЅРѕ',
+    title: 'Стартовый набор',
+    subtitle: 'Бесплатно',
     description:
-      'РќРµР±РѕР»СЊС€РѕР№ Р±РµСЃРїР»Р°С‚РЅС‹Р№ РЅР°Р±РѕСЂ РёРєРѕРЅРѕРє Рё РїСЂРµСЃРµС‚РѕРІ, С‡С‚РѕР±С‹ РїРѕРїСЂРѕР±РѕРІР°С‚СЊ РјР°РіР°Р·РёРЅ. ' +
-      'РћРїР»Р°С‚Р° РЅРµ С‚СЂРµР±СѓРµС‚СЃСЏ.',
+      'Небольшой бесплатный набор иконок и пресетов, чтобы попробовать магазин. ' +
+      'Оплата не требуется.',
     amountMinor: 0,
     compareAtMinor: null,
     categorySlug: 'tools',
@@ -148,7 +148,7 @@ const products: SeedProduct[] = [
  *
  * Without this check, forgetting the env file in production is silent:
  * DATABASE_URL falls back to `file:./prisma/dev.db`, better-sqlite3 happily
- * creates that file inside the release directory, the script reports success вЂ”
+ * creates that file inside the release directory, the script reports success —
  * and the live catalog stays empty.
  */
 function requireExistingDatabase(): void {
@@ -194,7 +194,7 @@ async function topUpLicenseKeys(
  * login anyway. Seeding them up front means an admin UI can list administrators
  * before they have ever opened the app.
  *
- * `firstName` is a placeholder вЂ” the real name arrives from Telegram on first
+ * `firstName` is a placeholder — the real name arrives from Telegram on first
  * login and overwrites it. Existing rows keep their name, so re-running never
  * clobbers real data.
  */
@@ -232,15 +232,15 @@ async function seedAdmins(): Promise<void> {
 async function seedBanners(hasCategories: boolean): Promise<void> {
   const banners = [
     {
-      title: 'РљСѓСЂСЃС‹ СЃРѕ СЃРєРёРґРєРѕР№',
-      subtitle: 'РџРѕРґР±РѕСЂРєР° РЅРµРґРµР»Рё',
+      title: 'Курсы со скидкой',
+      subtitle: 'Подборка недели',
       linkUrl: hasCategories ? 'category:courses' : null,
       sortOrder: 1,
       section: 'SHOP',
     },
     {
-      title: 'РљР»СѓР±РЅС‹Р№ С‚Р°СЂРёС„ 5%',
-      subtitle: 'РџРѕРґРїРёС€РёС‚РµСЃСЊ РЅР° РєР°РЅР°Р»',
+      title: 'Клубный тариф 5%',
+      subtitle: 'Подпишитесь на канал',
       linkUrl: config.clubChannel.url || null,
       sortOrder: 2,
       section: 'SHOP',

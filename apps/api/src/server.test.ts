@@ -252,7 +252,7 @@ describe('authentication', () => {
 
   it('reports no channel membership when no club channel is configured', async () => {
     // With CLUB_CHANNEL_ID unset the feature is off and `getChatMember` is never
-    // called вЂ” important in tests, where the Bot API points at an unroutable
+    // called — important in tests, where the Bot API points at an unroutable
     // address. The flag must still be present and false: the client reads it to
     // decide which price to display, and `undefined` would be truthy-adjacent
     // bugs waiting to happen.
@@ -270,10 +270,10 @@ describe('authentication', () => {
       method: 'PATCH',
       url: '/api/me',
       headers: authHeader(),
-      payload: { displayName: '  Р¤РёРЅ  ' },
+      payload: { displayName: '  Фин  ' },
     });
     assert.equal(renamed.statusCode, 200);
-    assert.equal(renamed.json().viewer.displayName, 'Р¤РёРЅ', 'trimmed');
+    assert.equal(renamed.json().viewer.displayName, 'Фин', 'trimmed');
 
     // The critical part: `upsertUser` rewrites the Telegram fields on every
     // request, so a custom name stored in `firstName` would vanish here.
@@ -282,7 +282,7 @@ describe('authentication', () => {
       url: '/api/me',
       headers: authHeader(),
     });
-    assert.equal(reread.json().viewer.displayName, 'Р¤РёРЅ');
+    assert.equal(reread.json().viewer.displayName, 'Фин');
     assert.equal(
       reread.json().viewer.firstName,
       'Tester',
@@ -308,7 +308,7 @@ describe('authentication', () => {
       method: 'PATCH',
       url: '/api/me',
       headers: authHeader(),
-      payload: { displayName: 'Р’СЂРµРјРµРЅРЅРѕРµ' },
+      payload: { displayName: 'Временное' },
     });
     const cleared = await app.inject({
       method: 'PATCH',
@@ -327,7 +327,7 @@ describe('authentication', () => {
       method: 'PATCH',
       url: '/api/me',
       headers: authHeader('555000333'),
-      payload: { displayName: 'Р§СѓР¶РѕРµ РёРјСЏ' },
+      payload: { displayName: 'Чужое имя' },
     });
 
     const mine = await app.inject({
@@ -335,14 +335,14 @@ describe('authentication', () => {
       url: '/api/me',
       headers: authHeader(TG_ID),
     });
-    assert.notEqual(mine.json().viewer.displayName, 'Р§СѓР¶РѕРµ РёРјСЏ');
+    assert.notEqual(mine.json().viewer.displayName, 'Чужое имя');
   });
 
   it('requires a signature to rename', async () => {
     const res = await app.inject({
       method: 'PATCH',
       url: '/api/me',
-      payload: { displayName: 'РђРЅРѕРЅРёРј' },
+      payload: { displayName: 'Аноним' },
     });
     assert.equal(res.statusCode, 401);
   });
@@ -353,7 +353,7 @@ describe('authentication', () => {
       url: '/api/me',
       headers: authHeader(),
     });
-    // Drives the "СЃ РЅР°РјРё N РґРЅРµР№" line, so it must be a parseable timestamp from
+    // Drives the "с нами N дней" line, so it must be a parseable timestamp from
     // the server rather than something the client invents.
     const { createdAt } = res.json().viewer;
     assert.ok(
@@ -363,8 +363,8 @@ describe('authentication', () => {
   });
 
   it('accepts the membership recheck header without changing the answer', async () => {
-    // The "РЇ РїРѕРґРїРёСЃР°Р»СЃСЏ!" button makes the client send this header. It may only
-    // force a fresh getChatMember lookup вЂ” never grant membership by itself,
+    // The "Я подписался!" button makes the client send this header. It may only
+    // force a fresh getChatMember lookup — never grant membership by itself,
     // which is exactly what an unsigned header must not be able to do.
     const res = await app.inject({
       method: 'GET',

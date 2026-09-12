@@ -14,7 +14,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
  * a real chain. They also have to pass offline.
  *
  * What is asserted here is the machinery that decides whether a payment is ever
- * seen at all вЂ” cursor advancement, window bounds, deduplication, finality and
+ * seen at all — cursor advancement, window bounds, deduplication, finality and
  * reorg handling. The predecessor system had no tests for any of it.
  */
 
@@ -295,7 +295,7 @@ beforeEach(async () => {
 describe('scan cursor', () => {
   it('starts a new address near the head, not at genesis', async () => {
     // A buyer cannot have paid an address before it existed, so earlier history
-    // holds nothing for it вЂ” and scanning from block 0 would be millions of
+    // holds nothing for it — and scanning from block 0 would be millions of
     // requests for no possible result.
     await seedIntent({ cursor: 0n });
     await monitor.runMonitorPass();
@@ -516,7 +516,7 @@ describe('recording transfers', () => {
     chain.receipts.set(txHash, { status: '0x1', blockHash });
 
     await monitor.runMonitorPass();
-    // Rewind the cursor so the same range is scanned again вЂ” exactly what a crash
+    // Rewind the cursor so the same range is scanned again — exactly what a crash
     // and restart produces.
     await prisma.depositWallet.updateMany({
       where: { intent: { id: intent.id } },

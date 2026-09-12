@@ -4,8 +4,8 @@ import { AppError } from '../errors.js';
 /**
  * Live USDT/RUB rate from Rapira.
  *
- * Replaces the fixed 86 в‚Ѕ/USDT that stood in for a real rate. The shop still
- * prices everything in roubles вЂ” this only decides how many USDT that is at the
+ * Replaces the fixed 86 ₽/USDT that stood in for a real rate. The shop still
+ * prices everything in roubles — this only decides how many USDT that is at the
  * moment a payment is opened.
  *
  * Two rules shape the whole module:
@@ -15,7 +15,7 @@ import { AppError } from '../errors.js';
  *     later, because the buyer is paying a number they were shown.
  *  2. **An unknown rate is an error, not a guess.** If Rapira is unreachable and
  *     the cache has expired, USDT checkout is refused. Quoting a stale or invented
- *     rate would mean charging a price nobody agreed to вЂ” and roubles and Stars
+ *     rate would mean charging a price nobody agreed to — and roubles and Stars
  *     keep working regardless, so refusing costs one rail rather than the shop.
  */
 
@@ -47,7 +47,7 @@ let cache: CacheEntry | null = null;
  * In-flight fetch, shared by concurrent callers.
  *
  * Without this, a burst of checkouts arriving on a cold cache would each open
- * their own request to Rapira вЂ” and could each get a slightly different rate,
+ * their own request to Rapira — and could each get a slightly different rate,
  * which is exactly the kind of inconsistency the cache exists to prevent.
  */
 let inFlight: Promise<RateQuote> | null = null;
@@ -55,13 +55,13 @@ let inFlight: Promise<RateQuote> | null = null;
 /**
  * Decimal string -> integer minor units, exactly.
  *
- * Not `value * 100`: binary floating point makes that drift (0.07 Г— 100 is
- * 7.000000000000001, and 1.005 Г— 100 is 100.49999999999999). Splitting the
+ * Not `value * 100`: binary floating point makes that drift (0.07 × 100 is
+ * 7.000000000000001, and 1.005 × 100 is 100.49999999999999). Splitting the
  * decimal string and padding is exact for any input the API can produce.
  */
 export function decimalStringToMinor(text: string, exponent = 2): number {
   // Validated as given, NOT trimmed first. Trimming before the check would accept
-  // " 87.7" вЂ” and silently tolerating stray whitespace in a price is how a
+  // " 87.7" — and silently tolerating stray whitespace in a price is how a
   // malformed upstream field turns into a plausible-looking rate.
   if (!/^\d+(\.\d+)?$/.test(text)) {
     throw new Error(`Malformed decimal: ${JSON.stringify(text)}`);
@@ -208,10 +208,10 @@ export async function getUsdtRubRate(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     // Technical detail for the journal; the buyer gets the message below. No
-    // credentials are involved вЂ” this endpoint is public.
+    // credentials are involved — this endpoint is public.
     throw new AppError(
       'RATE_UNAVAILABLE',
-      'РљСѓСЂСЃ USDT РІСЂРµРјРµРЅРЅРѕ РЅРµРґРѕСЃС‚СѓРїРµРЅ. РџРѕРїСЂРѕР±СѓР№С‚Рµ РїРѕР·Р¶Рµ РёР»Рё РІС‹Р±РµСЂРёС‚Рµ РґСЂСѓРіРѕР№ СЃРїРѕСЃРѕР± РѕРїР»Р°С‚С‹.',
+      'Курс USDT временно недоступен. Попробуйте позже или выберите другой способ оплаты.',
       { reason },
     );
   }
@@ -220,7 +220,7 @@ export async function getUsdtRubRate(
 /**
  * The rate if one is already known, without contacting Rapira.
  *
- * For places that would like to show a rate but must not fail without one вЂ” the
+ * For places that would like to show a rate but must not fail without one — the
  * admin product form is the case that matters: saving a rouble price cannot depend
  * on an exchange being reachable.
  */

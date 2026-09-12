@@ -6,7 +6,7 @@ import { after, before, beforeEach, describe, it } from 'node:test';
  * The live USDT/RUB rate from Rapira.
  *
  * Against a local server rather than the exchange: these tests need to control what
- * comes back РІР‚вЂќ a missing pair, a zero price, a timeout, a malformed body РІР‚вЂќ and none
+ * comes back — a missing pair, a zero price, a timeout, a malformed body — and none
  * of that is reachable against the real endpoint. They also have to pass offline.
  *
  * The captured payload below is the real shape, taken from
@@ -209,7 +209,7 @@ describe('fetching and caching', () => {
   });
 
   it('shares one request between concurrent callers', async () => {
-    // A burst on a cold cache must not become a burst upstream РІР‚вЂќ nor produce two
+    // A burst on a cold cache must not become a burst upstream — nor produce two
     // slightly different rates for two simultaneous checkouts.
     const [a, b, c] = await Promise.all([
       rapira.getUsdtRubRate(),

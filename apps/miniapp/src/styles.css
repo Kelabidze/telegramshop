@@ -1,5 +1,5 @@
 ﻿/*
- * OCHKISK ZONE вЂ” brand visual layer.
+ * OCHKISK ZONE — brand visual layer.
  *
  * Two colour systems live here on purpose.
  *
@@ -60,7 +60,7 @@
   /*
    * Text on a magenta fill is dark, not white: #E83DFF against white is 3.2:1,
    * below AA, while against the page black it is 6.1:1. That decision belongs
-   * in a variable because it applies to every magenta surface вЂ” the primary
+   * in a variable because it applies to every magenta surface — the primary
    * button, the native MainButton, selected chips.
    */
   --zone-on-magenta: #08070c;
@@ -76,7 +76,7 @@
    * start, and the rendered result would be this same stack anyway. Wiring one
    * up is two edits: add the `@font-face` block (subset with Cyrillic,
    * `font-display: swap`, file under `src/assets/fonts/`) and change this line.
-   * The body stack stays system on purpose вЂ” zero bytes and the best rendering
+   * The body stack stays system on purpose — zero bytes and the best rendering
    * on both iOS and Android.
    */
   --zone-font-display: var(--zone-font-body);
@@ -89,10 +89,16 @@
   --zone-transition: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 
   /*
-   * Mount points for brand decoration. `none` until the artwork exists:
-   * `background-image` pointing at a missing file costs a 404 per element, and
-   * these are decorative, so absence has to be the safe default. Each becomes
-   * one `url()` when the asset lands.
+   * Mount points for brand decoration.
+   *
+   * `none` here, and set at runtime by `applyDecor()` in `main.tsx`, because the
+   * URL has to come from a Vite import: a literal `url(./assets/...)` in CSS is
+   * fingerprinted at build time, but writing it by hand means a rename becomes a
+   * silent 404 rather than a build error.
+   *
+   * Only the tentacle is wired up. `suction` and `noise` stay `none`: a texture
+   * layer over an interface that is already dark surfaces and hairline borders is
+   * decoration for its own sake, and noise in particular costs a repaint on scroll.
    */
   --zone-decor-tentacle: none;
   --zone-decor-suction: none;
@@ -155,7 +161,28 @@ body {
   margin: 0 auto;
 }
 
-/* ---------- typography ---------- */
+/*
+ * ---------- typography ----------
+ *
+ * Five levels, largest to smallest: `.display` (screen owner), `.title` (heading),
+ * body (the root font-size, no class), `.subtitle` / `.hint` (secondary), and
+ * `.text-muted` (muted). Size, weight and colour all move together — a hierarchy
+ * built on size alone flattens out on a small phone.
+ */
+
+/*
+ * One per screen, for the thing the screen is about: a product name, an order
+ * total. Distinct from `.title` so a card heading and a screen heading are not the
+ * same size, which was previously the case everywhere.
+ */
+.display {
+  font-family: var(--zone-font-display);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
 
 .title {
   font-family: var(--zone-font-display);
@@ -173,9 +200,19 @@ body {
   margin: 0;
 }
 
+/*
+ * The quietest tier. Only for text that is genuinely incidental — a timestamp, a
+ * record id — because the muted grey is 3.6:1 on the page background and fails
+ * contrast for anything a buyer needs to read.
+ */
+.text-muted {
+  color: var(--zone-text-muted);
+  font-size: 12px;
+}
+
 .hint {
   /*
-   * Secondary, not muted. `--zone-text-muted` is 3.6:1 on the page background вЂ”
+   * Secondary, not muted. `--zone-text-muted` is 3.6:1 on the page background —
    * fine for a disabled control or an inactive icon, too low for 13px prose.
    */
   color: var(--zone-text-secondary);
@@ -211,7 +248,7 @@ body {
 
 /*
  * Every surface in the app is this shape: a graphite fill and one hairline
- * border. The border is what separates panels on a near-black background вЂ”
+ * border. The border is what separates panels on a near-black background —
  * without it the two-step difference between #08070C and #15131C disappears on
  * a phone in daylight. Deliberately no blur and no translucency: this is dark
  * premium, not glassmorphism.
@@ -479,7 +516,7 @@ select.input {
   cursor: pointer;
   color: var(--zone-text-secondary);
   font: inherit;
-  /* Four tabs on a narrow phone: 10px fits В«Р’СЃС‘ РґР»СЏ Р°Р±СѓР·Р°В» in a quarter of a
+  /* Four tabs on a narrow phone: 10px fits «Всё для абуза» in a quarter of a
      320px screen. */
   font-size: 10px;
   display: flex;
@@ -488,7 +525,7 @@ select.input {
   gap: 3px;
   overflow: hidden;
   /*
-   * Wraps instead of truncating. A clipped label ("Р’СЃС‘ РґР»СЏ Р°Р±вЂ¦") is a worse
+   * Wraps instead of truncating. A clipped label ("Всё для аб…") is a worse
    * outcome than a two-line one: the bar simply gets taller, whereas an ellipsis
    * hides which tab this is. `balance` keeps the two lines close in length rather
    * than leaving one word alone underneath.
@@ -578,7 +615,7 @@ select.input {
 
 /*
  * Selected: a magenta ring plus the faintest wash of brand glow. This is one of
- * the few places glow is allowed вЂ” it marks a single choice the user just made,
+ * the few places glow is allowed — it marks a single choice the user just made,
  * which is exactly the local, momentary use the accent is budgeted for.
  */
 .variation-option[aria-pressed='true'] {
@@ -608,7 +645,7 @@ select.input {
 
 /*
  * The icon carries the active state, the label carries legibility. Muted grey
- * is 3.6:1 вЂ” acceptable for a 20px glyph, not for a 10px caption, which is why
+ * is 3.6:1 — acceptable for a 20px glyph, not for a 10px caption, which is why
  * the two are coloured separately rather than inheriting one value.
  */
 .tab-bar__icon {
@@ -859,22 +896,19 @@ select.input {
 }
 
 /*
- * Brand signature at the end of the profile, the one place a wordmark does not
- * compete with anything. Hidden until the asset exists вЂ” an empty box with a
- * caption would be worse than nothing.
+ * Brand signature at the end of the profile, the one place a mark does not compete
+ * with anything. The octopus sits above letterspaced type, both restrained: this is
+ * a signature, not a splash screen.
  */
 .brand-signature {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   margin-top: 28px;
   padding-bottom: 4px;
 }
 
-/*
- * Type until the wordmark exists. Letterspaced small caps rather than invented
- * graphics: it is honest about being text, and it will not have to be undone вЂ”
- * the wrapper takes an <img class="brand-signature__mark"> in its place.
- */
 .brand-signature__wordmark {
   font-family: var(--zone-font-display);
   font-size: 12px;
@@ -884,10 +918,17 @@ select.input {
   color: var(--zone-text-muted);
 }
 
+/*
+ * The mark carries its own #08070C plate, which is the page colour, so it reads as
+ * a rounded tile rather than a floating cutout. Held small and dimmed — at full
+ * strength a magenta octopus at the foot of every profile visit becomes the loudest
+ * thing on the screen.
+ */
 .brand-signature__mark {
-  height: 18px;
-  width: auto;
-  opacity: 0.55;
+  height: 44px;
+  width: 44px;
+  border-radius: 12px;
+  opacity: 0.7;
 }
 
 /* ---------- category grid ---------- */
@@ -973,17 +1014,31 @@ select.input {
   margin-bottom: 16px;
 }
 
+/*
+ * The frame follows the artwork, via a custom property the component sets from the
+ * image's own dimensions.
+ *
+ * A single fixed ratio cannot work here. The new banner standard is 1280x360
+ * (32:9), but the two banners live in production today are 1279x720 and 1080x720 —
+ * pinning the frame to 32:9 with `object-fit: cover` would crop 44% and 55% off
+ * them. Pinning it to 16:9 letterboxes a 32:9 poster into a box twice as tall as
+ * the art with black bands above and below.
+ *
+ * So the ratio is data, not a constant: `--banner-ratio` defaults to the new
+ * standard and is overridden per card once the image reports its real size. Nothing
+ * is cropped, nothing is letterboxed, and legacy uploads keep working untouched.
+ */
 .banner-card {
   position: relative;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   width: 100%;
-  /* 16:9 is the media standard for banner artwork, so the frame matches the
-     asset and nothing gets letterboxed. `min-height` keeps a text-only banner
-     usable when there is no image at all. */
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--banner-ratio, 1280 / 360);
+  /* Enough for the caption, so a wide poster on a 320px screen stays readable. */
   min-height: 96px;
+  /* A 32:9 poster is short; on a tablet it must not become a letterbox slit. */
+  max-height: 60vh;
   padding: 12px;
   border: 1px solid var(--zone-border);
   border-radius: var(--radius);
@@ -995,21 +1050,23 @@ select.input {
 }
 
 /*
- * Square poster: В«Р’СЃС‘ РґР»СЏ Р°Р±СѓР·Р°В» leads with one full-width 1:1 banner instead of
- * a 16:9 strip. The override is on the container, not the card, so the shape is a
- * property of where the banner is shown rather than of the record вЂ” the same row
- * moved between sections gets framed correctly without an edit.
+ * Square poster: «Всё для абуза» leads with one full-width 1:1 banner. The override
+ * is on the container, not the card, so the shape is a property of where the banner
+ * is shown rather than of the record — the same row moved between sections gets
+ * framed correctly without an edit.
  *
- * `--plain` still wins: a text-only banner in a square box is mostly empty space
- * whichever section it belongs to, so the collapse rule below stays in charge.
+ * This one does override the measured ratio, because the section's layout is the
+ * point. `1080x1080` is the documented upload size for it, so there is nothing to
+ * crop when the guidance is followed.
  */
 .banner-strip--square .banner-card:not(.banner-card--plain) {
   aspect-ratio: 1 / 1;
 }
 
-/* Without artwork the 16:9 box is mostly empty; collapse it to the text. */
+/* Without artwork the framed box is mostly empty; collapse it to the text. */
 .banner-card--plain {
   aspect-ratio: auto;
+  max-height: none;
 }
 
 .banner-card--tappable {
@@ -1128,9 +1185,33 @@ select.input {
 }
 
 /*
+ * Product detail hero.
+ *
+ * One ratio for the real image and for both fallbacks. Previously the image was 1:1
+ * and the fallback 16:9, so a product without artwork had a visibly shorter hero and
+ * everything below it sat at a different height between two adjacent products.
+ */
+.product-hero {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+
+.product-hero--empty {
+  display: grid;
+  place-items: center;
+  font-size: 64px;
+  line-height: 1;
+  border: 1px solid var(--zone-border);
+  background: var(--zone-surface);
+}
+
+/*
  * Last-resort product artwork: no uploaded image and no emoji on the record.
  *
- * Deliberately a quiet frame rather than invented brand graphics вЂ” a placeholder
+ * Deliberately a quiet frame rather than invented brand graphics — a placeholder
  * that tries to look designed is the thing that makes a catalogue look like a
  * template. A faint violet wash separates it from a card whose image simply
  * failed to load, and the glyph inside is a neutral media mark.
@@ -1318,16 +1399,14 @@ select.input {
 /*
  * Empty-state artwork frame.
  *
- * A framed tile rather than a bare glyph, so the emoji the call sites still pass
- * looks deliberate on a dark background. It is also the mount point for the
- * OCHKISK illustrations: when they land, `EmptyState` receives `art` and the
- * same frame holds an <img> instead, with no other change.
+ * A framed tile rather than a bare glyph, so both the brand illustrations and the
+ * emoji the three admin screens still pass look deliberate on a dark background.
  */
 .empty-art {
   display: grid;
   place-items: center;
-  width: 96px;
-  height: 96px;
+  width: 132px;
+  height: 132px;
   border-radius: 24px;
   background:
     radial-gradient(
@@ -1341,9 +1420,16 @@ select.input {
   line-height: 1;
 }
 
+/*
+ * The illustrations are 320x240 line art with no padding of their own, so they need
+ * inset here or the strokes touch the frame. `contain` keeps the 4:3 drawing intact
+ * inside the square tile instead of cropping it.
+ */
 .empty-art__image {
   width: 100%;
   height: 100%;
+  padding: 18px;
+  box-sizing: border-box;
   object-fit: contain;
 }
 
@@ -1387,12 +1473,32 @@ select.input {
   }
 }
 
-.skeleton--card {
-  aspect-ratio: 3 / 4;
+/*
+ * A loading card is the real card with its contents greyed out, so the two occupy
+ * the same height at every width and the grid does not jump when data lands.
+ */
+.product-card--skeleton {
+  cursor: default;
+}
+
+.product-card--skeleton:active {
+  transform: none;
+}
+
+/* Matches `.product-card__media`. */
+.skeleton--card-media {
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  border-radius: 0;
 }
 
 .skeleton--category {
   aspect-ratio: 1 / 1;
+}
+
+/* Second line of a card skeleton: a price is shorter than a title. */
+.skeleton--text-short {
+  width: 45%;
 }
 
 .skeleton--text {
@@ -1493,6 +1599,19 @@ select.input {
   border-radius: 8px;
   background: var(--zone-surface-3);
   color: var(--zone-magenta);
+  /* The emoji fallback needs an explicit size; the SVG below sets its own. */
+  font-size: 17px;
+  line-height: 1;
+}
+
+/*
+ * The brand icons are 160x160 line art with their own magenta stroke, so they are
+ * sized rather than recoloured — `currentColor` does not reach into an <img>.
+ */
+.category-picker-card__glyph {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 .category-picker-card__title {

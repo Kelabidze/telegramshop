@@ -17,7 +17,14 @@ import {
 } from '../store/cart.ts';
 import { useMainButton } from '../telegram/buttons.ts';
 import { haptic, openInvoice, showAlert } from '../telegram/webapp.ts';
-import { EmptyState, ClubTierNotice, Price, Stepper } from '../components/ui.tsx';
+import { emptyArt } from '../assets/index.ts';
+import {
+  EmptyArt,
+  EmptyState,
+  ClubTierNotice,
+  Price,
+  Stepper,
+} from '../components/ui.tsx';
 
 /**
  * Cart and chkout.
@@ -231,7 +238,7 @@ export function CartScreen({
   if (lines.length === 0) {
     return (
       <EmptyState
-        emoji="🛒"
+        art={<EmptyArt src={emptyArt.cart} />}
         title="Корзина пуста"
         description="Добавьте товар из каталога, чтобы оформить заказ."
         action={

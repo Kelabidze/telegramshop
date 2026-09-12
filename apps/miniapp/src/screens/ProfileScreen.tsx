@@ -9,7 +9,8 @@ import {
   viewerDisplayName,
 } from '@shop/shared';
 import { ApiError, api } from '../api/client.ts';
-import { ClubChannelLink, EmptyState } from '../components/ui.tsx';
+import { brand, emptyArt } from '../assets/index.ts';
+import { ClubChannelLink, EmptyArt, EmptyState } from '../components/ui.tsx';
 import { haptic, openChannel } from '../telegram/webapp.ts';
 
 /** Only staff see their role; for a buyer it is noise. */
@@ -62,7 +63,7 @@ export function ProfileScreen({
   if (!viewer) {
     return (
       <EmptyState
-        emoji="🔐"
+        art={<EmptyArt src={emptyArt.locked} />}
         title="Профиль недоступен"
         description="Откройте приложение из Telegram, чтобы увидеть свои данные и клубный статус."
       />
@@ -168,14 +169,19 @@ export function ProfileScreen({
       </p>
 
       {/*
-        The single place the brand signs itself. Rendered as text until
-        `src/assets/logo/wordmark.svg` exists, at which point this becomes an
-        <img> with the same wrapper — `.brand-signature` is already styled for
-        both. Deliberately at the foot of the profile and nowhere else: the
-        catalogue and cart belong to the products, and Telegram already shows the
-        bot's name in native chrome above the header.
+        The single place the brand signs itself. Deliberately at the foot of the
+        profile and nowhere else: the catalogue and cart belong to the products, and
+        Telegram already shows the bot's name in native chrome above the header.
+
+        The mark is the pack's octopus, drawn as vector paths. The name stays CSS
+        text rather than `logo/wordmark.svg`, which sets its letters with `<text
+        font-family="Arial Black">` — an SVG loaded through `<img>` is an isolated
+        document that cannot see the app's fonts, and Arial Black ships on neither
+        Android nor iOS, so the wordmark would render in whatever each platform
+        substitutes. Type belongs to CSS; the drawing belongs to the SVG.
       */}
       <div className="brand-signature" aria-hidden="true">
+        <img className="brand-signature__mark" src={brand.mark} alt="" />
         <span className="brand-signature__wordmark">OCHKISK ZONE</span>
       </div>
     </div>

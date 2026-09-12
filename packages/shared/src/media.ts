@@ -97,7 +97,16 @@ export const MEDIA_MAX_BYTES = Math.max(
  * banner loses its text.
  */
 export const MEDIA_DIMENSIONS = {
-  banner: { width: 1280, height: 720, ratio: '16:9' },
+  /**
+   * 1280x360 is the banner standard: a wide poster, short enough that products stay
+   * visible under it on a phone.
+   *
+   * Advisory only, and the storefront does not depend on it — `.banner-card` takes
+   * its shape from each image's real dimensions, so the 1279x720 and 1080x720
+   * banners already uploaded keep rendering uncropped. This is the size to design
+   * for, not a size anything enforces.
+   */
+  banner: { width: 1280, height: 360, ratio: '32:9' },
   bannerSquare: { width: 1080, height: 1080, ratio: '1:1' },
   product: { width: 800, height: 800, ratio: '1:1' },
 } as const;

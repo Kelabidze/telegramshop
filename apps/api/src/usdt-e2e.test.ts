@@ -9,7 +9,7 @@ import { after, before, describe, it } from 'node:test';
  * The whole USDT purchase, driven through HTTP the way the Mini App drives it.
  *
  * The other crypto suites test layers: conversions, log decoding, reconciliation
- * decisions. This one checks that the layers are wired together РІР‚вЂќ that a buyer
+ * decisions. This one checks that the layers are wired together — that a buyer
  * who only ever touches the public API gets from a rouble-priced product to a
  * delivered licence key, and that every figure they are shown along the way is
  * the figure the next stage actually uses.
@@ -124,7 +124,7 @@ before(async () => {
   const category = await prisma.category.create({
     data: { slug: 'e2e', title: 'E2E', sortOrder: 1 },
   });
-  // 1290 РІвЂљР…. At 86 РІвЂљР…/USDT that is exactly 15.00 USDT for a club member.
+  // 1290 ₽. At 86 ₽/USDT that is exactly 15.00 USDT for a club member.
   const product = await prisma.product.create({
     data: {
       slug: 'e2e-item',
@@ -191,7 +191,7 @@ describe('USDT purchase, end to end over HTTP', () => {
     // The order records why it asks for this number, not just the number.
     //
     // This buyer is not a channel member (no club channel is configured here), so
-    // the base is the STANDARD price derived from the stored club-tier one РІР‚вЂќ and
+    // the base is the STANDARD price derived from the stored club-tier one — and
     // that derived figure is what gets snapshotted and converted.
     const { effectiveUnitMinor } = await import('@shop/shared');
     const expectedBase = effectiveUnitMinor(listed.amountMinor, false);
@@ -201,7 +201,7 @@ describe('USDT purchase, end to end over HTTP', () => {
       'a non-member must be quoted above the club price',
     );
     // The live rate from the (fake) exchange, in kopecks per USDT, plus where it
-    // came from вЂ” an order kept for months should say which claim it was priced on.
+    // came from — an order kept for months should say which claim it was priced on.
     assert.equal(session.order.rateRubMinorPerUnit, 8_770);
     assert.equal(session.order.rateSource, 'RAPIRA');
     assert.equal(session.order.rateSide, 'ask');
@@ -477,7 +477,7 @@ describe('USDT purchase, end to end over HTTP', () => {
     assert.equal(session.order.currency, 'XTR');
     assert.equal(session.cryptoPayment, null, 'Stars orders get no intent');
     assert.equal(session.order.rateRubMinorPerUnit, 130);
-    // Whole Stars, derived from the same base the USDT order used РІР‚вЂќ the standard
+    // Whole Stars, derived from the same base the USDT order used — the standard
     // price, since this buyer is not a club member either.
     const { effectiveUnitMinor, starsForRubMinor } = await import('@shop/shared');
     const base = effectiveUnitMinor(129_000, false);

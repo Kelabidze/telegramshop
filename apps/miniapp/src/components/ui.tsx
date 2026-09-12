@@ -4,6 +4,7 @@ import {
   formatMoney,
   type Currency,
 } from '@shop/shared';
+import { emptyArt } from '../assets/index.ts';
 import { openChannel, showAlert, showConfirm } from '../telegram/webapp.ts';
 
 /**
@@ -208,9 +209,22 @@ export function Spinner({ label }: { label?: string }) {
 
 export function ProductSkeletonGrid() {
   return (
-    <div className="product-grid">
+    <div className="product-grid" aria-hidden="true">
       {Array.from({ length: 4 }, (_, i) => (
-        <div key={i} className="skeleton skeleton--card" />
+        /*
+          Built from the same parts as a real card — 1:1 media plus a body — rather
+          than one box at a guessed ratio. The single `3 / 4` block it replaced was
+          about 25px shorter than the card at phone widths, so the grid jumped as
+          soon as products arrived. Mirroring the structure keeps them the same
+          height at any width, with no number to keep in sync.
+        */
+        <div key={i} className="product-card product-card--skeleton">
+          <div className="skeleton skeleton--card-media" />
+          <div className="product-card__body">
+            <div className="skeleton skeleton--text" />
+            <div className="skeleton skeleton--text skeleton--text-short" />
+          </div>
+        </div>
       ))}
     </div>
   );
@@ -235,11 +249,9 @@ export function CategorySkeletonGrid({ count = 6 }: { count?: number }) {
  * and a breath of violet, which is what makes a bare glyph look deliberate
  * against a near-black page instead of abandoned.
  *
- * Both props exist because the OCHKISK illustrations are not drawn yet. The
- * frame is the mount point: when an asset lands, that call site passes
- * `art={<img className="empty-art__image" src={...} alt="" />}` and nothing else
- * changes. Until then the emoji stays — deliberately, rather than being replaced
- * by invented placeholder graphics, which would have to be undone twice.
+ * `emoji` remains for states the brand has not drawn an illustration for — the three
+ * admin screens — while `art` carries the real artwork everywhere a buyer can reach.
+ * Keeping both avoids inventing placeholder graphics for staff-only screens.
  */
 export function EmptyState({
   emoji,
@@ -270,6 +282,17 @@ export function EmptyState({
   );
 }
 
+/**
+ * Brand illustration for an empty state.
+ *
+ * `alt=""` and the `aria-hidden` frame around it are deliberate: the heading and
+ * description already say what the state is, so announcing the picture too would just
+ * repeat it to a screen reader.
+ */
+export function EmptyArt({ src }: { src: string }) {
+  return <img className="empty-art__image" src={src} alt="" />;
+}
+
 export function ErrorState({
   message,
   onRetry,
@@ -279,7 +302,7 @@ export function ErrorState({
 }) {
   return (
     <EmptyState
-      emoji="⚠️"
+      art={<EmptyArt src={emptyArt.error} />}
       title="Что-то пошло не так"
       description={message}
       action={

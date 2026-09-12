@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { formatMoney, type Order } from '@shop/shared';
 import { api } from '../api/client.ts';
-import { EmptyState, ErrorState, Spinner } from '../components/ui.tsx';
+import { emptyArt } from '../assets/index.ts';
+import { EmptyArt, EmptyState, ErrorState, Spinner } from '../components/ui.tsx';
 import { useScrollRestoration } from '../hooks/useScrollRestoration.ts';
 
 const STATUS_LABEL: Record<Order['status'], string> = {
@@ -44,7 +45,7 @@ export function OrdersScreen({
   if (orders.length === 0) {
     return (
       <EmptyState
-        emoji="📦"
+        art={<EmptyArt src={emptyArt.orders} />}
         title="Заказов пока нет"
         description="Здесь появятся ваши покупки и ключи доступа."
         action={

@@ -780,6 +780,100 @@ describe('product management', () => {
   });
 });
 
+describe('base currency', () => {
+  it('creates in RUB when currency is omitted', async () => {
+    // The default used to be XTR, so any caller that forgot the field created a
+    // legacy Stars-priced product — one that cannot be paid by card or USDT at all,
+    // and whose stored number is billed as whole Stars.
+    const res = await call({
+      method: 'POST',
+      url: '/api/products',
+      as: IDS.keyManager,
+      body: {
+        slug: 'currency-default',
+        title: 'Без валюты',
+        amountMinor: 49_900,
+        fulfillmentKind: 'LINK',
+        staticPayload: 'https://example.test/x',
+      },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+
+    const row = await prisma.product.findUniqueOrThrow({
+      where: { slug: 'currency-default' },
+    });
+    assert.equal(row.currency, 'RUB');
+    assert.equal(row.amountMinor, 49_900, '499 ₽ in kopecks, unchanged');
+  });
+
+  it('refuses to reprice a legacy XTR product without an explicit currency', async () => {
+    // Staff typing a rouble figure into the price field of a Stars-priced product is
+    // the dangerous case: 1290 would be charged as 1290 Stars, roughly 1677 ₽, with
+    // nothing in the UI to hint at it. The admin form does not send `currency` on
+    // update, so this guard is the only thing standing between the two readings.
+    const legacy = await prisma.product.create({
+      data: {
+        slug: 'legacy-stars',
+        title: 'Старый товар',
+        description: '',
+        amountMinor: 150,
+        currency: 'XTR',
+        fulfillmentKind: 'LINK',
+        staticPayload: 'https://example.test/legacy',
+      },
+    });
+
+    const res = await call({
+      method: 'PUT',
+      url: `/api/products/${legacy.id}`,
+      as: IDS.keyManager,
+      body: { amountMinor: 129_000 },
+    });
+    assert.equal(res.statusCode, 400, res.body);
+    assert.match(res.body, /XTR/, 'the error has to name the unit it is refusing');
+
+    const unchanged = await prisma.product.findUniqueOrThrow({
+      where: { id: legacy.id },
+    });
+    assert.equal(unchanged.amountMinor, 150, 'the price must not have moved');
+    assert.equal(unchanged.currency, 'XTR');
+  });
+
+  it('allows the reprice when the currency is stated', async () => {
+    const legacy = await prisma.product.findUniqueOrThrow({
+      where: { slug: 'legacy-stars' },
+    });
+    const res = await call({
+      method: 'PUT',
+      url: `/api/products/${legacy.id}`,
+      as: IDS.keyManager,
+      body: { amountMinor: 19_500, currency: 'RUB' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+
+    const row = await prisma.product.findUniqueOrThrow({ where: { id: legacy.id } });
+    assert.equal(row.currency, 'RUB');
+    assert.equal(row.amountMinor, 19_500);
+  });
+
+  it('leaves a RUB product repriceable without ceremony', async () => {
+    const row = await prisma.product.findUniqueOrThrow({
+      where: { slug: 'currency-default' },
+    });
+    const res = await call({
+      method: 'PUT',
+      url: `/api/products/${row.id}`,
+      as: IDS.keyManager,
+      body: { amountMinor: 59_900 },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(
+      (await prisma.product.findUniqueOrThrow({ where: { id: row.id } })).amountMinor,
+      59_900,
+    );
+  });
+});
+
 describe('global order list', () => {
   it('does not shadow GET /api/orders/:id', async () => {
     // `/orders/all` and `/orders/:id` coexist in Fastify's router; this pins

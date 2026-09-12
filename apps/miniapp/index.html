@@ -29,15 +29,15 @@
       }
     </style>
     <!--
-      App icons go here once the final OCHKISK mark exists:
+      The mark lives in `public/`, which Vite copies to the root of `dist`, so this
+      URL is fixed and needs no build-time interpolation.
 
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-
-      with the files themselves in `public/` (Vite copies that folder to the root
-      of `dist`, so the URL stays fixed). Left unreferenced rather than pointed at
-      placeholders: a `<link>` to a missing file is a 404 on every cold start.
+      SVG only. `apple-touch-icon` wants a PNG at a specific pixel size, and there is
+      no PNG export of the mark in the pack — a <link> to a file that does not exist
+      is a 404 on every cold start, which is worse than letting iOS fall back to a
+      screenshot of the page.
     -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>OCHKISK ZONE</title>
     <!--
       The Telegram WebApp script must load before the app so `window.Telegram`
