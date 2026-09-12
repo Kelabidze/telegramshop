@@ -1,6 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { casheraWebhookSchema } from '@shop/shared';
+import {
+  casheraWebhookSchema,
+  casheraWebhookEventSchema,
+  casheraPaymentInputSchema,
+  CASHERA_HANDLED_EVENT,
+} from '@shop/shared';
 import { config } from '../config.js';
 import { prisma } from '../db.js';
 import { AppError, notFound, validationError } from '../errors.js';
@@ -40,7 +45,7 @@ async function requireOwnedOrder(
 
 export const casheraRoutes: FastifyPluginAsync = async (app) => {
   /**
-   * Opens the card payment, or returns the one this order already has.
+   * Opens the Cashera payment, or returns the one this order already has.
    *
    * Rate limited: each first call reaches an external gateway.
    */
@@ -54,10 +59,16 @@ export const casheraRoutes: FastifyPluginAsync = async (app) => {
         throw validationError('Invalid order id.', params.error.issues);
       }
 
+      const input = casheraPaymentInputSchema.safeParse(request.body ?? {});
+      if (!input.success) {
+        throw validationError('Invalid payment rail.', input.error.issues);
+      }
+      const rail = input.data.rail;
+
       if (!config.cashera.enabled) {
         throw new AppError(
           'CARD_PAYMENTS_DISABLED',
-          'Оплата картой сейчас недоступна.',
+          'Оплата через платёжный шлюз сейчас недоступна.',
         );
       }
 
@@ -70,7 +81,16 @@ export const casheraRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const existing = await getPaymentByOrderId(order.id);
-      const payment = existing ?? (await createPaymentForOrder(order.id));
+      /**
+       * An existing payment is returned whatever rail was asked for.
+       *
+       * Cashera will not re-open one order on a second method — a different payload
+       * under the same `external_id` is a 409 — and the buyer's rail choice is
+       * therefore fixed at order creation. Reporting the payment that exists is the
+       * honest answer; `createPaymentForOrder` raises the conflict if the rails
+       * genuinely differ and no row is present yet.
+       */
+      const payment = existing ?? (await createPaymentForOrder(order.id, rail));
       reply.code(existing ? 200 : 201);
       return { casheraPayment: payment };
     },
@@ -165,6 +185,24 @@ export const casheraWebhookRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
+      /**
+       * Look at the event type before committing to a body shape.
+       *
+       * Cashera delivers several event types to one `callback_url` — payment,
+       * payout and subscription status, plus a `webhook.test` ping from the
+       * dashboard. Its documented rule is to answer `2xx` to anything we do not
+       * handle: a `4xx` is treated as a configuration error and stops retries, so
+       * rejecting `webhook.test` would make the merchant's own test button look
+       * broken. Authentication has already happened, so acknowledging is safe.
+       */
+      const envelope = casheraWebhookEventSchema.safeParse(request.body);
+      const event = envelope.success ? envelope.data.event : '';
+
+      if (event !== CASHERA_HANDLED_EVENT) {
+        request.log.info({ event: event || '<missing>' }, 'Ignored a Cashera event');
+        return reply.code(200).send({ ok: true, accepted: false, ignored: true });
+      }
+
       const parsed = casheraWebhookSchema.safeParse(request.body);
       if (!parsed.success) {
         request.log.warn(
@@ -194,6 +232,13 @@ export const casheraWebhookRoutes: FastifyPluginAsync = async (app) => {
           'Cashera webhook rejected',
         );
         return reply.code(200).send({ ok: true, accepted: false });
+      }
+
+      // A settled payment whose method differs from the rail we opened is accepted
+      // but noted: the money arrived and was verified, so goods ship; the mismatch
+      // is telemetry for whoever maintains the Cashera settings.
+      if (outcome.warning) {
+        request.log.warn({ detail: outcome.warning }, 'Cashera payment method mismatch');
       }
 
       if (outcome.duplicate) {

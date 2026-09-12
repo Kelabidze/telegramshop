@@ -401,14 +401,22 @@ export async function createOrder(
   }
 
   /**
-   * Card / SBP goes to an external gateway, which answers with a hosted page.
+   * Card, SBP or Cashera crypto goes to an external gateway, which answers with a
+   * hosted page.
    *
    * Created here for the same reason as the on-chain intent: an order that is
    * payable in principle but has nowhere to pay is a dead end for the buyer.
+   *
+   * The rail (`card` or `crypto`) is what the buyer chose in the picker. It is
+   * captured at creation because Cashera fixes the payment method per `external_id`
+   * — the same order cannot later be re-opened on the other flow.
    */
   if (chargeCurrency === 'RUB') {
     const { createPaymentForOrder } = await import('./cashera-payments.js');
-    const casheraPayment = await createPaymentForOrder(order.id);
+    const casheraPayment = await createPaymentForOrder(
+      order.id,
+      input.casheraRail ?? 'card',
+    );
     return {
       order: toApiOrder(order),
       invoiceUrl: null,

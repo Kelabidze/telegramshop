@@ -378,11 +378,32 @@ model CasheraTransaction {
   /// make reconciliation ambiguous.
   uuid       String @unique
 
-  status        String @default("pending")
-  /// RUB kopecks — the same unit the order holds and the gateway was sent.
-  amountMinor   Int
-  currency      String @default("RUB")
-  paymentMethod String
+  status      String @default("pending")
+  /// RUB kopecks - the same unit the order holds and the gateway was sent.
+  amountMinor Int
+  currency    String @default("RUB")
+
+  /// Which rail the buyer chose: `card` or `crypto`.
+  ///
+  /// Stored separately from `paymentMethod` because they answer different questions.
+  /// This is what we asked for and stays fixed; `paymentMethod` is what Cashera
+  /// actually settled with, which on a common payment form is unknown until the
+  /// buyer picks. Defaulted so existing rows read as the card rail they were.
+  rail String @default("card")
+
+  /// The Cashera method code, e.g. `sbp` or `crypto`.
+  ///
+  /// Nullable: a common payment form returns `payment_method: null` with
+  /// `selection_required: true` until the buyer chooses, and recording a guess would
+  /// misreport how the money actually moved.
+  paymentMethod String?
+
+  /// What Cashera offered on a common payment form, as returned by the API.
+  ///
+  /// Diagnostics only - a record of what the buyer could choose from at the time.
+  /// Never read back to build a picker: the list belongs to Cashera's page, and a
+  /// copy of it here would go stale the moment merchant settings change.
+  availableMethods String?
 
   /// Hosted page for the buyer. Not a secret: it is what they are redirected to.
   paymentUrl String?

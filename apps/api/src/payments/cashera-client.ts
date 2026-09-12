@@ -22,6 +22,12 @@ const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 500;
 
+/** One method Cashera offers on a common payment form. */
+export interface CasheraAvailableMethod {
+  code: string;
+  title: string;
+}
+
 export interface CasheraTransactionDto {
   uuid: string;
   status: string;
@@ -29,15 +35,34 @@ export interface CasheraTransactionDto {
   external_id?: string;
   amount?: number;
   currency?: string;
-  payment_method?: string;
+  /**
+   * Null while a common payment form is still waiting for the buyer to choose.
+   * Filled in once the checkout session becomes a transaction.
+   */
+  payment_method?: string | null;
   paid_at?: string | null;
+  /** True on a common payment form before a method has been picked. */
+  selection_required?: boolean;
+  /**
+   * What the buyer may choose from, decided by this merchant's settings in
+   * Cashera's dashboard. Recorded for diagnostics, never used to build a picker of
+   * our own — the whole point of the common form is that the list is theirs.
+   */
+  available_payment_methods?: CasheraAvailableMethod[];
 }
 
 export interface CreateTransactionInput {
   /** Minor units (RUB kopecks), integer. */
   amountMinor: number;
   currency: 'RUB';
-  paymentMethod: string;
+  /**
+   * A method code such as `crypto`, or `null` for the common payment form.
+   *
+   * `null` is not the same as absent-with-a-default: Cashera requires the key to be
+   * omitted from the JSON entirely, and rejects it being present as `null` or `''`.
+   * That distinction is enforced in `createTransaction` below.
+   */
+  paymentMethod: string | null;
   /** Stable reference to our order. The idempotency key for the whole flow. */
   externalId: string;
   description: string;
@@ -170,10 +195,23 @@ function describeStatus(status: number): string {
       return 'Платёжный шлюз отклонил ключ доступа.';
     case 403:
       return 'Платёжный шлюз отклонил конфигурацию магазина.';
+    /**
+     * The same `external_id` was reused with a different payload, or a payment was
+     * switched between a fixed method and the common form. Cashera's idempotency
+     * only returns the original transaction for an *exact* repeat.
+     *
+     * Worth its own wording: it means this order already has a payment that differs
+     * from what we just asked for, which is a real integration fault rather than
+     * something a buyer can retry past.
+     */
+    case 409:
+      return 'Для этого заказа уже создан платёж с другими параметрами.';
     case 422:
       return 'Платёжный шлюз отклонил параметры платежа.';
     case 429:
       return 'Слишком много запросов к платёжному шлюзу. Попробуйте ещё раз.';
+    case 502:
+      return 'Платёжный провайдер вернул ошибку. Попробуйте ещё раз.';
     default:
       return `Ошибка платёжного шлюза (${status}).`;
   }
@@ -217,7 +255,18 @@ export async function createTransaction(
     body: {
       amount: input.amountMinor,
       currency: input.currency,
-      payment_method: input.paymentMethod,
+      /**
+       * Omitted entirely when null, which is what selects the common payment form.
+       *
+       * Cashera is explicit that the key must be absent — present-but-null or an
+       * empty string is rejected. `JSON.stringify` drops `undefined` properties, so
+       * spreading conditionally is what actually leaves the key out of the wire
+       * format; assigning `undefined` to it would read the same in source but is not
+       * the same request.
+       */
+      ...(input.paymentMethod === null
+        ? {}
+        : { payment_method: input.paymentMethod }),
       external_id: input.externalId,
       description: input.description,
       callback_url: input.callbackUrl,

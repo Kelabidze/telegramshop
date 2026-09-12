@@ -1,8 +1,10 @@
 ﻿import { timingSafeEqual } from 'node:crypto';
 import {
   type CasheraPayment,
+  type CasheraRail,
   type CasheraStatus,
   type CasheraWebhook,
+  casheraRailSchema,
   casheraStatusSchema,
   isTerminalCasheraStatus,
 } from '@shop/shared';
@@ -41,7 +43,8 @@ function toApiCasheraPayment(row: {
   uuid: string;
   status: string;
   amountMinor: number;
-  paymentMethod: string;
+  rail: string;
+  paymentMethod: string | null;
   paymentUrl: string | null;
   createdAt: Date;
   paidAt: Date | null;
@@ -54,6 +57,7 @@ function toApiCasheraPayment(row: {
     status,
     amountMinor: row.amountMinor,
     currency: 'RUB',
+    rail: casheraRailSchema.catch('card').parse(row.rail),
     paymentMethod: row.paymentMethod,
     // Withheld once the payment is settled or dead: a live-looking link on a paid
     // order invites a second payment for goods already delivered.
@@ -76,14 +80,34 @@ function publicOrigin(): string {
 }
 
 /**
+ * The Cashera method code for a rail, or null to omit it.
+ *
+ * `null` is not a placeholder — it selects the common payment form, where the JSON
+ * must contain no `payment_method` key at all and Cashera lets the buyer pick from
+ * every method the merchant has enabled. That is the widest official flow, but it
+ * also offers card and SBP, so the crypto rail only falls back to it when the
+ * merchant has deliberately cleared `CASHERA_CRYPTO_PAYMENT_METHOD`.
+ */
+function methodForRail(rail: CasheraRail): string | null {
+  return rail === 'crypto' ? config.cashera.cryptoPaymentMethod : config.cashera.paymentMethod;
+}
+
+/**
  * Opens a Cashera payment for an order, or returns the one it already has.
  *
  * Idempotent at two levels: this row is unique per order, and the `external_id`
  * sent to Cashera is derived from the order. A buyer reloading checkout gets the
  * same payment link rather than a second transaction.
+ *
+ * The rail is part of that identity in practice. Cashera's idempotency only returns
+ * the original transaction for an *exact* repeat — asking for `crypto` on an order
+ * that was already opened on `sbp` is a 409, not a retry. So `rail` is recorded and
+ * a mismatch is refused here with a clear reason instead of surfacing as a gateway
+ * error the buyer cannot act on.
  */
 export async function createPaymentForOrder(
   orderId: string,
+  rail: CasheraRail = 'card',
 ): Promise<CasheraPayment> {
   if (!config.cashera.enabled) {
     throw new AppError(
@@ -100,13 +124,28 @@ export async function createPaymentForOrder(
       currency: true,
       totalAmountMinor: true,
       reference: true,
-      casheraPayment: { select: { id: true } },
+      casheraPayment: { select: { id: true, rail: true } },
       lines: { select: { titleSnapshot: true, quantity: true } },
     },
   });
   if (!order) throw notFound(`Order ${orderId} was not found.`);
 
   if (order.casheraPayment) {
+    /**
+     * Refuse a rail change rather than silently handing back the other rail's link.
+     *
+     * Cashera keys idempotency on the whole payload: re-creating with a different
+     * `payment_method` under the same `external_id` is a 409, so the request could
+     * not succeed anyway. Returning the existing payment would be worse than the
+     * error — a buyer who picked crypto would be sent to a card page. One order,
+     * one rail; a buyer wanting the other rail places a new order.
+     */
+    if (order.casheraPayment.rail !== rail) {
+      throw new AppError(
+        'CONFLICT',
+        `Для этого заказа уже создан платёж другим способом. Оформите заказ заново, чтобы оплатить криптовалютой.`,
+      );
+    }
     const existing = await getPaymentByOrderId(orderId);
     if (existing) return existing;
   }
@@ -134,10 +173,11 @@ export async function createPaymentForOrder(
   const dto = await createTransaction({
     // The order's own total, in the unit it is already stored in. No conversion
     // happens on this rail: RUB kopecks are what the base price holds and what
-    // the gateway expects.
+    // the gateway expects. Even a crypto payment is invoiced in RUB — Cashera
+    // converts at its own rate on the buyer's page.
     amountMinor: order.totalAmountMinor,
     currency: 'RUB',
-    paymentMethod: config.cashera.paymentMethod,
+    paymentMethod: methodForRail(rail),
     externalId,
     description: description.slice(0, 200),
     callbackUrl: `${origin}/webhooks/cashera`,
@@ -151,6 +191,17 @@ export async function createPaymentForOrder(
       'Платёжный шлюз не вернул идентификатор транзакции.',
     );
   }
+
+  /**
+   * Cashera's own list of what a common payment form offered, serialised for
+   * diagnostics. Recorded, never read back to build a picker — the buyer chooses on
+   * Cashera's page, and a stored copy would go stale the moment merchant settings
+   * change.
+   */
+  const availableMethods =
+    dto.available_payment_methods && dto.available_payment_methods.length > 0
+      ? JSON.stringify(dto.available_payment_methods)
+      : null;
 
   /**
    * `upsert` on `externalId`, not `create`.
@@ -168,8 +219,11 @@ export async function createPaymentForOrder(
       status: casheraStatusSchema.catch('pending').parse(dto.status ?? 'pending'),
       amountMinor: order.totalAmountMinor,
       currency: 'RUB',
-      paymentMethod: dto.payment_method ?? config.cashera.paymentMethod,
+      rail,
+      // Null until the buyer picks on a common form; the requested code otherwise.
+      paymentMethod: dto.payment_method ?? methodForRail(rail),
       paymentUrl: dto.payment_url ?? null,
+      availableMethods,
     },
     update: {
       // Refresh the link: a re-created transaction can carry a new one. The status
@@ -177,12 +231,14 @@ export async function createPaymentForOrder(
       // moved it on, and a stale `pending` here would undo that.
       paymentUrl: dto.payment_url ?? undefined,
       uuid: dto.uuid,
+      ...(availableMethods ? { availableMethods } : {}),
     },
     select: {
       orderId: true,
       uuid: true,
       status: true,
       amountMinor: true,
+      rail: true,
       paymentMethod: true,
       paymentUrl: true,
       createdAt: true,
@@ -203,6 +259,7 @@ export async function getPaymentByOrderId(
       uuid: true,
       status: true,
       amountMinor: true,
+      rail: true,
       paymentMethod: true,
       paymentUrl: true,
       createdAt: true,
@@ -247,7 +304,7 @@ export function authenticateWebhook(headers: {
 }
 
 export type WebhookOutcome =
-  | { handled: true; duplicate: boolean; status: CasheraStatus }
+  | { handled: true; duplicate: boolean; status: CasheraStatus; warning?: string }
   | { handled: false; reason: string };
 
 /**
@@ -280,6 +337,8 @@ export async function handleWebhook(
       amountMinor: true,
       currency: true,
       status: true,
+      rail: true,
+      paymentMethod: true,
     },
   });
 
@@ -327,11 +386,31 @@ export async function handleWebhook(
     },
   });
 
+  /**
+   * Compare the settled method against the rail we opened, as a diagnostic.
+   *
+   * Deliberately a warning carried on the outcome, not a gate. By the time a `paid`
+   * webhook is trusted, the money is in: the amount and currency match the order, the
+   * uuid matches the row, and the request carried both credentials. A method string
+   * that differs from what we asked for is worth recording — it can mean a merchant
+   * changed settings in Cashera's dashboard, or a common form was used — but
+   * withholding goods for a payment that was actually received would harm the buyer
+   * over a label. The credential check is the security boundary; this is telemetry.
+   * The route logs it through `request.log`, since the service layer does not own a
+   * logger.
+   *
+   * `row.paymentMethod` is the value from creation, read before the update above.
+   */
+  const methodWarning =
+    tx.payment_method && row.paymentMethod && tx.payment_method !== row.paymentMethod
+      ? `order ${row.orderId} was opened with method "${row.paymentMethod}" but settled as "${tx.payment_method}" (rail ${row.rail})`
+      : undefined;
+
   if (status !== 'paid') {
     // pending / failed / expired / refunded / chargeback all stop here. None of
     // them may release goods, and a refund or chargeback on a delivered order is a
     // human decision rather than an automatic reversal of fulfilment.
-    return { handled: true, duplicate: false, status };
+    return { handled: true, duplicate: false, status, ...(methodWarning ? { warning: methodWarning } : {}) };
   }
 
   /**
@@ -361,7 +440,7 @@ export async function handleWebhook(
     await notifyOrderDelivered(paid);
   }
 
-  return { handled: true, duplicate: false, status };
+  return { handled: true, duplicate: false, status, ...(methodWarning ? { warning: methodWarning } : {}) };
 }
 
 function parsePaidAt(value: string | null | undefined): Date | null {
@@ -423,7 +502,9 @@ export async function listCasheraPaymentsForStaff(limit = 100) {
       status: true,
       amountMinor: true,
       currency: true,
+      rail: true,
       paymentMethod: true,
+      availableMethods: true,
       createdAt: true,
       paidAt: true,
       order: { select: { id: true, reference: true, status: true } },
@@ -437,7 +518,13 @@ export async function listCasheraPaymentsForStaff(limit = 100) {
     status: row.status,
     amountMinor: row.amountMinor,
     currency: row.currency,
+    rail: casheraRailSchema.catch('card').parse(row.rail),
     paymentMethod: row.paymentMethod,
+    /**
+     * What Cashera offered at creation, for support. Parsed defensively: it is a
+     * JSON blob written by us, but a malformed value must not break the list.
+     */
+    availableMethods: parseAvailableMethods(row.availableMethods),
     createdAt: row.createdAt.toISOString(),
     paidAt: row.paidAt ? row.paidAt.toISOString() : null,
     orderId: row.order.id,
@@ -445,6 +532,25 @@ export async function listCasheraPaymentsForStaff(limit = 100) {
     orderStatus: row.order.status,
     eventCount: row._count.events,
   }));
+}
+
+function parseAvailableMethods(raw: string | null): { code: string; title: string }[] | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed
+      .filter(
+        (m): m is { code: string; title?: unknown } =>
+          typeof m === 'object' && m !== null && typeof m.code === 'string',
+      )
+      .map((m) => ({
+        code: m.code,
+        title: typeof m.title === 'string' ? m.title : m.code,
+      }));
+  } catch {
+    return null;
+  }
 }
 
 export type StaffCasheraPayment = Awaited<

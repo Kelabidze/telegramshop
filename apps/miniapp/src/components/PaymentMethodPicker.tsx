@@ -32,14 +32,16 @@ export function PaymentMethodPicker({
   return (
     <div className="pay-methods">
       {/*
-        Card first: it is the familiar option, and the one most buyers will take.
-        Ordering by expected use rather than by when it was implemented.
+        Cashera crypto: a RUB invoice the buyer settles in cryptocurrency on
+        Cashera's own page, which presents whichever coins the merchant has enabled.
+        This shop never names a coin. It is the first option because it is the flow
+        this build is meant to lead buyers to.
       */}
       <PaymentMethodOption
         selected={value === 'RUB'}
-        title="Карта · СБП"
+        title="Криптовалюта"
         amount={formatMoney(rubMinor, 'RUB')}
-        caption={cardAvailable ? 'Оплата в рублях' : 'Временно недоступно'}
+        caption={cardAvailable ? 'Через платёжный шлюз' : 'Временно недоступно'}
         disabled={!cardAvailable}
         onSelect={() => onChange('RUB')}
       />

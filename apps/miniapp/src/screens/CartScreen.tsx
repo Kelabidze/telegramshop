@@ -123,6 +123,12 @@ export function CartScreen({
           quantity: line.quantity,
         })),
         paymentCurrency: effectivePayWith,
+        /**
+         * The RUB rail is this build's Cashera crypto checkout, so it opens on the
+         * crypto flow. The coin is never chosen here — Cashera presents whatever the
+         * merchant has enabled on its own page.
+         */
+        casheraRail: effectivePayWith === 'RUB' ? 'crypto' : 'card',
       });
 
       // On-chain: there is no invoice to open, only an address to pay. The cart

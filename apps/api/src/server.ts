@@ -261,6 +261,15 @@ export async function buildServer() {
         paymentMethod: config.cashera.enabled
           ? config.cashera.paymentMethod
           : null,
+        /**
+         * The method the crypto rail asks for. `null` here means the common payment
+         * form — Cashera presents every enabled method and the buyer chooses.
+         * Non-secret, and the way to confirm after a deploy that the crypto rail is
+         * wired to `crypto` rather than falling back to the card method.
+         */
+        cryptoPaymentMethod: config.cashera.enabled
+          ? config.cashera.cryptoPaymentMethod
+          : null,
         // A gateway cannot call back without this, so its absence is the most
         // likely reason a payment never settles.
         callbackConfigured: Boolean(config.publicApiUrl || config.publicAppUrl),

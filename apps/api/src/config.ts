@@ -197,13 +197,26 @@ const envSchema = z.object({
   CASHERA_API_SECRET: z.string().default(''),
   CASHERA_BASE_URL: z.string().default('https://api.cashera.cash/api/v1'),
   /**
-   * Which Cashera method to charge with, e.g. `sbp`.
+   * Which Cashera method to charge with, e.g. `sbp` or `card`.
    *
    * Configuration rather than a literal in the checkout path: the set a merchant
    * may use is decided in Cashera's dashboard, not in this code, and one shop
    * changing method should not need a deploy.
    */
   CASHERA_PAYMENT_METHOD: z.string().default('sbp'),
+  /**
+   * Which method the crypto rail asks for.
+   *
+   * `crypto` is Cashera's own code for "pay in cryptocurrency" — the buyer picks the
+   * coin and network on Cashera's page, and the invoice is still denominated in RUB.
+   * This shop never names a coin.
+   *
+   * Empty string means the opposite approach: omit `payment_method` altogether and
+   * use Cashera's common payment form, where the buyer chooses from every method the
+   * merchant has enabled. That is the widest official flow, but it also offers card
+   * and SBP alongside crypto, so it is opt-in rather than the default.
+   */
+  CASHERA_CRYPTO_PAYMENT_METHOD: z.string().default('crypto'),
   /** Per-request timeout, milliseconds. */
   CASHERA_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
 
@@ -419,6 +432,14 @@ export const config = {
     apiSecret: raw.CASHERA_API_SECRET,
     baseUrl: raw.CASHERA_BASE_URL.replace(/\/+$/, ''),
     paymentMethod: raw.CASHERA_PAYMENT_METHOD,
+    /**
+     * `null` when the variable is blank, meaning "use the common payment form".
+     *
+     * Normalised here rather than at the call site so the distinction between "ask
+     * for the crypto method" and "let Cashera present every enabled method" is made
+     * once, in the place that reads configuration.
+     */
+    cryptoPaymentMethod: raw.CASHERA_CRYPTO_PAYMENT_METHOD.trim() || null,
     timeoutMs: raw.CASHERA_TIMEOUT_MS,
   },
 

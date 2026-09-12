@@ -7,7 +7,8 @@ import { ErrorState, Spinner } from '../components/ui.tsx';
 import { haptic, openExternal, showAlert } from '../telegram/webapp.ts';
 
 /**
- * Card / SBP payment, via Cashera's hosted page.
+ * Cashera payment, via its hosted page — card or cryptocurrency, whichever rail the
+ * order opened on.
  *
  * The buyer leaves the Mini App to pay and comes back, so this screen has to work
  * without knowing whether they actually paid. It never infers success from the
@@ -117,7 +118,9 @@ export function CasheraPaymentScreen({
 
   return (
     <div className="page">
-      <h1 className="title">Оплата картой</h1>
+      <h1 className="title">
+        {payment.rail === 'crypto' ? 'Оплата криптовалютой' : 'Оплата картой'}
+      </h1>
 
       <div className={`pay-status pay-status--${TONE[payment.status]}`}>
         <div className="pay-status__label">
@@ -191,11 +194,24 @@ export function CasheraPaymentScreen({
   );
 }
 
-/** `sbp` reads better as «СБП» to a buyer. Unknown codes are shown as-is. */
+/**
+ * A buyer-facing name for the settled method.
+ *
+ * Null means a common payment form where Cashera has not had a method chosen yet,
+ * so the rail name is the honest label — not a guess about a method the buyer has
+ * not picked. `crypto` covers any cryptocurrency Cashera presents; this code never
+ * names a specific coin.
+ */
 function methodLabel(payment: CasheraPayment): string {
+  if (!payment.paymentMethod) {
+    return payment.rail === 'crypto' ? 'Криптовалюта' : 'Карта · СБП';
+  }
   const known: Record<string, string> = {
     sbp: 'СБП',
     card: 'Банковская карта',
+    mastercard: 'Банковская карта',
+    crypto: 'Криптовалюта',
+    cryptobot: 'CryptoBot',
   };
   return known[payment.paymentMethod.toLowerCase()] ?? payment.paymentMethod;
 }

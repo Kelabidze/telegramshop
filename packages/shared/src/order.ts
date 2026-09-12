@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { amountMinorSchema, currencySchema } from './money.js';
 import { type PaymentCurrency, paymentCurrencySchema } from './base-price.js';
 import { cryptoPaymentSchema } from './crypto-payment.js';
-import { casheraPaymentSchema } from './cashera.js';
+import { casheraPaymentSchema, casheraRailSchema, type CasheraRail } from './cashera.js';
 import { cuidSchema, fulfillmentKindSchema } from './catalog.js';
 
 export const MAX_LINE_QUANTITY = 99;
@@ -59,6 +59,16 @@ export const createOrderInputSchema = z.object({
    * Defaults to Stars so an older client that does not send it keeps working.
    */
   paymentCurrency: paymentCurrencySchema.default('XTR'),
+  /**
+   * Within the RUB/Cashera rail, which flow to open: `card` or `crypto`.
+   *
+   * Only read when `paymentCurrency` is `RUB`; ignored otherwise. Never a coin —
+   * the crypto rail hands off to Cashera, which presents whatever currencies the
+   * merchant has enabled on its own page.
+   *
+   * Defaults to `card` so a client that does not send it behaves as before.
+   */
+  casheraRail: casheraRailSchema.default('card'),
 });
 /**
  * `paymentCurrency` is optional on the input type even though zod defaults it:
@@ -67,8 +77,8 @@ export const createOrderInputSchema = z.object({
  */
 export type CreateOrderInput = Omit<
   z.infer<typeof createOrderInputSchema>,
-  'paymentCurrency'
-> & { paymentCurrency?: PaymentCurrency };
+  'paymentCurrency' | 'casheraRail'
+> & { paymentCurrency?: PaymentCurrency; casheraRail?: CasheraRail };
 
 /** Server-computed line, safe to render. */
 export const orderLineSchema = z.object({

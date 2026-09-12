@@ -88,6 +88,7 @@ before(async () => {
   process.env.CASHERA_API_SECRET = API_SECRET;
   process.env.CASHERA_BASE_URL = gatewayUrl;
   process.env.CASHERA_PAYMENT_METHOD = 'sbp';
+  process.env.CASHERA_CRYPTO_PAYMENT_METHOD = 'crypto';
   // Short, so retry tests do not take seconds.
   process.env.CASHERA_TIMEOUT_MS = '1500';
   process.env.PUBLIC_API_URL = 'https://shop.example';
@@ -209,6 +210,55 @@ async function placeCardOrder(options: { quantity?: number } = {}) {
   return { ...result, telegramId };
 }
 
+/**
+ * Places a RUB order on the Cashera crypto rail.
+ *
+ * Same order and same RUB invoice as `placeCardOrder`; only the rail differs, which
+ * is the whole point of the test — crypto must reach Cashera as `payment_method:
+ * "crypto"`, not as `sbp`.
+ */
+async function placeCryptoOrder(options: { quantity?: number } = {}) {
+  buyerSeq += 1;
+  const telegramId = BUYER + buyerSeq;
+  const user = await prisma.user.upsert({
+    where: { telegramId: String(telegramId) },
+    create: { telegramId: String(telegramId), firstName: 'Crypto' },
+    update: {},
+  });
+
+  const result = await orders.createOrder(
+    {
+      id: user.id,
+      telegramId: user.telegramId,
+      firstName: user.firstName,
+      lastName: null,
+      username: null,
+      languageCode: null,
+      displayName: null,
+      role: 'USER',
+      permissions: [],
+      isAdmin: false,
+      createdAt: user.createdAt.toISOString(),
+      isSubscribedChannel: true,
+    },
+    {
+      items: [{ productId, quantity: options.quantity ?? 1 }],
+      paymentCurrency: 'RUB',
+      casheraRail: 'crypto',
+    },
+  );
+  return { ...result, telegramId };
+}
+
+/** The single create-transaction body the fake gateway received, typed loosely. */
+function lastCreateBody(): Record<string, unknown> {
+  const create = [...gateway.requests]
+    .reverse()
+    .find((r) => r.method === 'POST' && r.path === '/integration/transactions');
+  assert.ok(create, 'expected a create-transaction request');
+  return create!.body as Record<string, unknown>;
+}
+
 /** Posts a webhook with the given headers and body. */
 async function postWebhook(
   body: unknown,
@@ -233,6 +283,8 @@ function paidEvent(tx: {
   amount: number;
   currency?: string;
   status?: string;
+  /** The method the gateway settles with. Defaults to the card rail's. */
+  method?: string;
 }) {
   return {
     event: 'transaction.status_updated',
@@ -242,7 +294,7 @@ function paidEvent(tx: {
       status: tx.status ?? 'paid',
       amount: tx.amount,
       currency: tx.currency ?? 'RUB',
-      payment_method: 'sbp',
+      payment_method: tx.method ?? 'sbp',
       paid_at: new Date().toISOString(),
     },
   };
@@ -484,8 +536,22 @@ describe('webhook authentication', () => {
     assert.match(source, /req\.headers\["x-api-key"\]/);
   });
 
-  it('rejects a malformed body with 400, after authenticating', async () => {
-    const res = await postWebhook({ event: 'x', transaction: { uuid: 'u' } });
+  it('acknowledges an event it does not act on with 2xx, not 400', async () => {
+    // Cashera's documented rule: answer 2xx to anything unrecognised, because a
+    // 4xx is treated as a configuration error and stops retries. `webhook.test` is
+    // sent by the dashboard's own test button and carries no `transaction`, so
+    // rejecting it would make the merchant's test look broken.
+    for (const event of ['webhook.test', 'payout.status_updated', 'something.new']) {
+      const res = await postWebhook({ event });
+      assert.equal(res.statusCode, 200, `${event} must be acknowledged`);
+      assert.equal(res.json().accepted, false);
+    }
+  });
+
+  it('rejects a malformed handled event with 400', async () => {
+    // The event type is one we act on, but the body is not a valid transaction.
+    // That is a 400: asking Cashera to retry a body that will never parse is noise.
+    const res = await postWebhook({ event: 'transaction.status_updated', transaction: { uuid: 'u' } });
     assert.equal(res.statusCode, 400);
   });
 });
@@ -922,6 +988,9 @@ describe('API surface', () => {
     const { cashera: diag } = res.json();
     assert.equal(diag.enabled, true);
     assert.equal(diag.paymentMethod, 'sbp');
+    // The crypto rail is reported too, so a deploy can be confirmed wired to
+    // `crypto` without creating a real payment.
+    assert.equal(diag.cryptoPaymentMethod, 'crypto');
     assert.equal(diag.callbackConfigured, true);
 
     assert.ok(!res.body.includes(API_KEY));
@@ -1013,5 +1082,258 @@ describe('other rails still work', () => {
         return true;
       },
     );
+  });
+});
+
+describe('crypto rail', () => {
+  it('creates the transaction with payment_method=crypto, in RUB minor units', async () => {
+    gatewayCreates();
+    const { order, casheraPayment } = await placeCryptoOrder();
+
+    const body = lastCreateBody();
+    // The core requirement: crypto, not sbp, and not a named coin.
+    assert.equal(body.payment_method, 'crypto');
+    assert.equal(body.currency, 'RUB');
+    assert.equal(body.amount, 49_900, '499 ₽ sent as kopecks');
+    assert.equal(body.external_id, cashera.externalIdForOrder(order.id));
+    assert.equal(body.callback_url, 'https://shop.example/webhooks/cashera');
+    assert.ok(
+      typeof body.success_url === 'string' && body.success_url.startsWith('https://'),
+      'success_url must be an absolute https URL',
+    );
+    assert.ok(typeof body.description === 'string' && body.description.length > 0);
+
+    assert.equal(casheraPayment!.rail, 'crypto');
+    assert.equal(casheraPayment!.amountMinor, 49_900);
+    assert.equal(casheraPayment!.currency, 'RUB');
+  });
+
+  it('does not send sbp on the crypto rail', async () => {
+    gatewayCreates();
+    await placeCryptoOrder();
+    const body = lastCreateBody();
+    assert.notEqual(body.payment_method, 'sbp');
+    assert.equal(body.payment_method, 'crypto');
+  });
+
+  it('never restricts the rail to a single coin', async () => {
+    // The whole point: "crypto", not "USDT". No coin name is chosen by this shop.
+    gatewayCreates();
+    await placeCryptoOrder();
+    const body = lastCreateBody();
+
+    // Inspect the *values*, not a substring scan of the whole body: the key
+    // `payment_method` itself contains "eth", so scanning keys would false-positive.
+    const method = String(body.payment_method).toLowerCase();
+    const description = String(body.description ?? '').toLowerCase();
+    const values = `${method} ${description}`;
+
+    for (const coin of ['usdt', 'usdc', 'btc', 'bnb', 'tron', 'bep20']) {
+      assert.equal(values.includes(coin), false, `must not hardcode ${coin}`);
+    }
+    // `eth` is checked as a whole word because it is a substring of `method`.
+    assert.equal(/\beth\b/.test(method), false, 'must not hardcode eth');
+    assert.equal(body.payment_method, 'crypto');
+  });
+
+  it('records the method Cashera reports and redirects to payment_url', async () => {
+    const created = gatewayCreates({ payment_url: 'https://pay.example/crypto-1' });
+    await placeCryptoOrder();
+
+    const row = await prisma.casheraTransaction.findUniqueOrThrow({
+      where: { uuid: created.uuid },
+      select: { rail: true, paymentMethod: true, paymentUrl: true },
+    });
+    assert.equal(row.rail, 'crypto');
+    assert.equal(row.paymentMethod, 'crypto');
+    assert.equal(row.paymentUrl, 'https://pay.example/crypto-1');
+  });
+
+  it('settles on a paid webhook and delivers the key', async () => {
+    const created = gatewayCreates();
+    const { order } = await placeCryptoOrder();
+
+    const res = await postWebhook(
+      paidEvent({
+        uuid: created.uuid,
+        externalId: cashera.externalIdForOrder(order.id),
+        amount: 49_900,
+        method: 'crypto',
+      }),
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().accepted, true);
+
+    const settled = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: { status: true },
+    });
+    assert.equal(settled.status, 'PAID');
+  });
+
+  it('does not settle on pending', async () => {
+    const created = gatewayCreates();
+    const { order } = await placeCryptoOrder();
+
+    await postWebhook(
+      paidEvent({
+        uuid: created.uuid,
+        externalId: cashera.externalIdForOrder(order.id),
+        amount: 49_900,
+        status: 'pending',
+        method: 'crypto',
+      }),
+    );
+
+    const still = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: { status: true },
+    });
+    assert.equal(still.status, 'PENDING', 'pending must not release goods');
+  });
+
+  it('delivers once on a replayed paid webhook', async () => {
+    const created = gatewayCreates();
+    const { order } = await placeCryptoOrder();
+    const event = paidEvent({
+      uuid: created.uuid,
+      externalId: cashera.externalIdForOrder(order.id),
+      amount: 49_900,
+      method: 'crypto',
+    });
+
+    await postWebhook(event);
+    const second = await postWebhook(event);
+    assert.equal(second.statusCode, 200);
+    assert.equal(second.json().duplicate, true, 'the replay is recognised');
+
+    const delivered = await prisma.orderLine.findMany({
+      where: { orderId: order.id, deliveredPayload: { not: null } },
+    });
+    assert.equal(delivered.length, 1, 'exactly one line, delivered once');
+  });
+
+  it('does not settle when the amount is wrong', async () => {
+    const created = gatewayCreates();
+    const { order } = await placeCryptoOrder();
+
+    await postWebhook(
+      paidEvent({
+        uuid: created.uuid,
+        externalId: cashera.externalIdForOrder(order.id),
+        amount: 1,
+        method: 'crypto',
+      }),
+    );
+
+    const still = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: { status: true },
+    });
+    assert.equal(still.status, 'PENDING');
+  });
+
+  it('does not settle when the currency is wrong', async () => {
+    const created = gatewayCreates();
+    const { order } = await placeCryptoOrder();
+
+    await postWebhook(
+      paidEvent({
+        uuid: created.uuid,
+        externalId: cashera.externalIdForOrder(order.id),
+        amount: 49_900,
+        currency: 'USD',
+        method: 'crypto',
+      }),
+    );
+
+    const still = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: { status: true },
+    });
+    assert.equal(still.status, 'PENDING');
+  });
+
+  it('accepts a settlement whose method differs from the one requested', async () => {
+    // A merchant may change what `crypto` resolves to in Cashera's dashboard, or a
+    // common form may settle on another method. The money arrived and was verified by
+    // amount, currency and uuid, so goods ship; the mismatch is only a diagnostic.
+    const created = gatewayCreates();
+    const { order } = await placeCryptoOrder();
+
+    await postWebhook(
+      paidEvent({
+        uuid: created.uuid,
+        externalId: cashera.externalIdForOrder(order.id),
+        amount: 49_900,
+        method: 'cryptobot',
+      }),
+    );
+
+    const settled = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      select: { status: true },
+    });
+    assert.equal(settled.status, 'PAID');
+  });
+
+  it('refuses to re-open an order already placed on the card rail', async () => {
+    gatewayCreates();
+    const { order } = await placeCardOrder();
+
+    // Cashera keys idempotency on the whole payload, so a different method under the
+    // same external_id could never succeed upstream. The conflict is raised here
+    // rather than surfacing as an opaque gateway 409.
+    await assert.rejects(
+      () => cashera.createPaymentForOrder(order.id, 'crypto'),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, 'CONFLICT');
+        return true;
+      },
+    );
+  });
+
+  it('omits payment_method entirely for the common payment form', async () => {
+    // A blank CASHERA_CRYPTO_PAYMENT_METHOD means "let Cashera offer every enabled
+    // method". The key must be absent from the JSON — present-but-null is rejected.
+    const { config } = await import('./config.ts');
+    const original = config.cashera.cryptoPaymentMethod;
+    (config.cashera as { cryptoPaymentMethod: string | null }).cryptoPaymentMethod = null;
+
+    try {
+      gatewayCreates({ payment_method: null, selection_required: true });
+      const { order } = await placeCryptoOrder();
+      const body = lastCreateBody();
+      assert.equal('payment_method' in body, false, 'the key must be omitted, not null');
+
+      const row = await prisma.casheraTransaction.findUniqueOrThrow({
+        where: { orderId: order.id },
+        select: { rail: true, paymentMethod: true },
+      });
+      assert.equal(row.rail, 'crypto');
+      assert.equal(row.paymentMethod, null, 'unknown until the buyer picks');
+    } finally {
+      (config.cashera as { cryptoPaymentMethod: string | null }).cryptoPaymentMethod = original;
+    }
+  });
+
+  it('does not require CRYPTO_DEPOSIT_XPUB or the native BEP20 rail', async () => {
+    // The crypto rail must work with the native on-chain payments disabled. If it
+    // depended on them, `crypto` would be unavailable in production today.
+    const { config } = await import('./config.ts');
+    assert.equal(config.crypto.enabled, false, 'native BEP20 stays off');
+    assert.ok(config.cashera.enabled, 'Cashera is the only thing required');
+
+    gatewayCreates();
+    const { casheraPayment } = await placeCryptoOrder();
+    assert.equal(casheraPayment!.rail, 'crypto');
+  });
+
+  it('keeps the card rail charging the configured card method', async () => {
+    // The crypto work must not have changed what `card` does.
+    gatewayCreates();
+    await placeCardOrder();
+    const body = lastCreateBody();
+    assert.equal(body.payment_method, 'sbp');
   });
 });
