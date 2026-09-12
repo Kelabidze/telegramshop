@@ -13,9 +13,20 @@ import { CasheraError, getRates } from '../payments/cashera-client.js';
  * endpoint, so it moves no money and opens no transaction.
  *
  * The 401 this exists to explain is produced by our own client (`describeStatus`),
- * translating a rejection from Cashera. A wrong or unknown key, and a key with
- * stray quotes or a trailing carriage return from a CRLF-edited env file, are
- * indistinguishable from the storefront; this separates them.
+ * translating a rejection from Cashera. From the storefront a wrong key and an
+ * unrecognised one look identical; this separates them.
+ *
+ * Run it as `npm run cashera:check`. That is deliberately the compiled `dist/`
+ * entry, not `tsx`: tsx is a devDependency and production is installed without
+ * dev dependencies, so a `tsx` script cannot run there at all. The two
+ * `--env-file-if-exists` paths cover both hosts — the shared server file wins on
+ * production, the local `.env` on a developer machine, and a missing one is
+ * skipped silently.
+ *
+ * One failure needs naming because it has produced a wrong diagnosis before: an
+ * edge in front of the API (Cloudflare) can answer 403 with an HTML challenge
+ * page. That is not Cashera and says nothing about the key, so the probe reports
+ * the distinction rather than concluding "merchant disabled".
  */
 
 function line(label: string, value: string): void {
@@ -100,11 +111,23 @@ async function main(): Promise<void> {
 
       switch (error.httpStatus) {
         case 401:
+          /**
+           * A 401 only means something when Cashera actually answered. An edge
+           * challenge page arrives as HTML, parses into no message, and then a 401
+           * says nothing about the key — guessing here is what sent this diagnosis
+           * in the wrong direction once already.
+           */
+          if (!error.gatewayMessage) {
+            console.log('\n✗ 401 with no Cashera message: an edge in front of the API');
+            console.log('  returned a challenge page instead of Cashera. The request never');
+            console.log('  reached the API, so this run says NOTHING about the key.');
+            break;
+          }
           console.log('\n✗ 401 from Cashera: the API key was rejected.');
           // The gateway's own wording decides which of these it is. Confirmed live:
           // an absent/empty key and an unrecognised one return different messages
           // under the same status.
-          if (error.gatewayMessage?.includes('required')) {
+          if (error.gatewayMessage.includes('required')) {
             console.log('  The key arrived empty. CASHERA_API_KEY is unset or blank in');
             console.log('  /srv/shop/shared/api.env, so check the variable name and that');
             console.log('  the file is actually loaded by the unit.');
@@ -124,7 +147,31 @@ async function main(): Promise<void> {
           console.log('  and Node trims header values before sending.');
           break;
         case 403:
-          console.log('\n✗ 403: the merchant is disabled or cannot accept payments (not a key problem).');
+          /**
+           * A 403 has two entirely different meanings here, and telling them apart is
+           * the whole point of carrying `gatewayMessage`.
+           *
+           * Cashera's own 403 arrives as JSON and means the merchant is disabled. An
+           * edge in front of the API (Cloudflare) answers 403 with an HTML challenge
+           * page, which never parses into a message — and that says nothing about the
+           * key or the merchant, only that the request never reached Cashera.
+           *
+           * Confirmed live: an identical HTML 403 was returned for a valid key, a
+           * deliberately wrong key, and no key at all, so no inference about any of
+           * them is possible. Claiming "merchant disabled" in that case would send an
+           * operator to fix a setting that is not broken.
+           */
+          if (error.gatewayMessage) {
+            console.log('\n✗ 403 from Cashera: the merchant is disabled or cannot accept payments.');
+            console.log('  This is not a key problem — the key was recognised. Check the account');
+            console.log('  status in the Cashera dashboard.');
+          } else {
+            console.log('\n✗ 403 with no Cashera message: an edge in front of the API (Cloudflare)');
+            console.log('  returned a challenge page instead of Cashera. The request never reached');
+            console.log('  the API, so this run says NOTHING about the key or the merchant.');
+            console.log('  Repeated probing can trigger this; wait and retry once, or check');
+            console.log('  whether this host is allowed to reach api.cashera.cash.');
+          }
           break;
         case 422:
           console.log(`\n✗ 422: the key is valid, but payment_method "${probeMethod}" is not enabled`);
