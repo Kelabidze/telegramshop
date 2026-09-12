@@ -450,6 +450,54 @@ describe('recording transfers', () => {
     assert.equal(stored.blockHash, blockHash);
   });
 
+  it('keeps watching an expired address, because money still arrives late', async () => {
+    /*
+     * A buyer can send the transfer just after the deadline, or the transfer can be
+     * slow. If the address leaves the scan set the moment its intent expires, that
+     * money is never seen by anything — the funds sit at an address the shop owns
+     * but does not know it received, and the buyer has no evidence to point at.
+     *
+     * Expiry closes the *intent*; it does not stop the *address* from being watched.
+     */
+    const { intent, address } = await seedIntent({ cursor: 999_000n });
+
+    await prisma.cryptoPaymentIntent.update({
+      where: { id: intent.id },
+      data: { status: 'EXPIRED', expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    // Nothing has ever been seen at this address, so the "has SEEN transactions"
+    // arm of the scan filter cannot save it.
+    const seenCount = await prisma.cryptoTransaction.count({
+      where: { intentId: intent.id },
+    });
+    assert.equal(seenCount, 0);
+
+    const txHash = `0x${'7a'.repeat(32)}`;
+    const blockHash = `0x${'7b'.repeat(32)}`;
+    chain.logs = [
+      transferLog({
+        to: address,
+        amountWei: 15_000_000_000_000_000_000n,
+        blockNumber: 999_050n,
+        blockHash,
+        txHash,
+      }),
+    ];
+    chain.blockHashes.set('999050', blockHash);
+    chain.receipts.set(txHash, { status: '0x1', blockHash });
+
+    await monitor.runMonitorPass();
+
+    const recorded = await prisma.cryptoTransaction.findFirst({
+      where: { txHash },
+    });
+    assert.ok(
+      recorded,
+      'a transfer to an expired address was not recorded — the funds would be invisible',
+    );
+  });
+
   it('does not insert the same log twice across passes', async () => {
     const { intent, address } = await seedIntent({ cursor: 999_000n });
     const txHash = `0x${'cc'.repeat(32)}`;
@@ -699,7 +747,15 @@ describe('resilience', () => {
     });
   });
 
-  it('stops watching an address once its intent has settled', async () => {
+  it('drops an old address from the scan set, so cost stays bounded', async () => {
+    /*
+     * The working set cannot be "open intents only" — a late transfer to a closed
+     * intent would be invisible (see the expiry test above), and a settled address
+     * still holds funds until sweeping exists. So it is bounded by AGE instead:
+     * an address nobody has paid in a week is not about to be paid.
+     *
+     * This is the counterpart to that test: the set must not grow forever.
+     */
     const { intent, address } = await seedIntent({ cursor: 999_000n });
     const txHash = `0x${'2a'.repeat(32)}`;
     const blockHash = `0x${'2b'.repeat(32)}`;
@@ -722,16 +778,28 @@ describe('resilience', () => {
     });
     assert.equal(settled.status, 'CONFIRMED');
 
-    // A settled address with nothing unconfirmed leaves the working set, so scan
-    // cost stays proportional to open payments rather than to all payments ever.
+    // Freshly settled: still watched, because money can still arrive late and the
+    // funds are not swept.
     chain.logs = [];
     chain.logRequests = [];
+    await monitor.runMonitorPass();
+    assert.ok(
+      chain.logRequests.length > 0,
+      'a freshly settled address must stay watched while it holds funds',
+    );
+
+    // Age it past the late-watch window.
+    await prisma.depositWallet.updateMany({
+      where: { intent: { id: intent.id } },
+      data: { createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+    });
+
+    chain.logRequests = [];
     const next = await monitor.runMonitorPass();
-    const scannedThis = chain.logRequests.length;
     assert.equal(
-      scannedThis,
+      chain.logRequests.length,
       0,
-      `still scanning a settled address (${next.walletsScanned} wallets)`,
+      `still scanning a long-closed address (${next.walletsScanned} wallets)`,
     );
   });
 });

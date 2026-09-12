@@ -1,4 +1,4 @@
-import { config } from '../config.js';
+﻿import { config } from '../config.js';
 import { prisma } from '../db.js';
 import { normalizeAddress } from './addresses.js';
 import { weiToString } from './amounts.js';
@@ -11,7 +11,7 @@ import { expireStaleIntents, reconcileIntent } from '../services/crypto-payments
  *
  * Its entire job is to turn `Transfer` logs into `CryptoTransaction` rows and
  * mark them final. It never decides an intent's status and never touches an
- * order — that belongs to `services/crypto-payments.ts`. Keeping the component
+ * order вЂ” that belongs to `services/crypto-payments.ts`. Keeping the component
  * most exposed to RPC failures, duplicate logs and reorgs away from money
  * decisions is the point of the split.
  *
@@ -29,6 +29,16 @@ import { expireStaleIntents, reconcileIntent } from '../services/crypto-payments
 
 /** Bounded, so a stuck reorg check cannot wedge a pass forever. */
 const MAX_REORG_CHECKS_PER_PASS = 50;
+
+/**
+ * How long a deposit address stays watched after its intent closed.
+ *
+ * Late transfers are the reason: a buyer can send just after the deadline, and
+ * that money has to be recorded rather than silently missed. A week is far longer
+ * than any plausible delay while still bounding the working set вЂ” and once
+ * sweeping exists, a swept address leaves the set on its own regardless.
+ */
+const LATE_WATCH_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface MonitorPassResult {
   scanned: boolean;
@@ -94,7 +104,7 @@ function emptyResult(): MonitorPassResult {
  * The finality frontier: everything at or below this height is settled.
  *
  * Prefers BSC's `finalized` tag, which both configured endpoints serve. Falls
- * back to a depth rule only when the tag is unavailable — and that fallback is
+ * back to a depth rule only when the tag is unavailable вЂ” and that fallback is
  * deliberately conservative, because the honest response to "I cannot tell
  * whether this is final" is to wait longer, not to assume it is.
  */
@@ -216,7 +226,7 @@ async function settleSeenTransactions(
     // appear in a block.
     const receipt = await rpc.getTransactionReceipt(tx.txHash);
     if (!receipt || receipt.status !== '0x1') {
-      // No receipt yet is not a failure — leave it SEEN and look again next pass.
+      // No receipt yet is not a failure вЂ” leave it SEEN and look again next pass.
       if (receipt && receipt.status !== '0x1') {
         await prisma.cryptoTransaction.update({
           where: { id: tx.id },
@@ -255,7 +265,7 @@ async function settleSeenTransactions(
 /**
  * Reads one block range, halving it if an endpoint refuses the size.
  *
- * Public BSC endpoints cap `eth_getLogs` differently and inconsistently — a probe
+ * Public BSC endpoints cap `eth_getLogs` differently and inconsistently вЂ” a probe
  * against mainnet answered "limit exceeded" for a range the configured window
  * allowed. Giving up on such a range would stall the cursor behind it forever, and
  * widening the window is not something the operator should have to tune per
@@ -331,15 +341,34 @@ export async function runMonitorPass(): Promise<MonitorPassResult> {
   /**
    * Which addresses to watch.
    *
-   * Open intents, plus wallets that have unconfirmed transfers or funds not yet
-   * swept — a payment can land after expiry, and dropping the address from the
-   * scan set the moment an intent closes would lose it.
+   * Wider than "intents that are still open", on purpose. A transfer can land
+   * just after the deadline, or simply be slow, and an address dropped from the
+   * scan set the moment its intent closed would make that money invisible: the
+   * funds sit at an address the shop controls but has no record of receiving, and
+   * the buyer has nothing to point at.
+   *
+   * So an address stays watched while any of these hold:
+   *  - its intent can still be paid;
+   *  - it has a transfer that has not reached finality yet;
+   *  - it holds confirmed funds that have not been swept.
+   *
+   * The last arm is what keeps a settled-but-unswept address in view, and it is
+   * also why this does not grow without bound: once sweeping exists, a swept
+   * wallet leaves the set. Until then `LATE_WATCH_MS` bounds it by age instead вЂ”
+   * an address nobody has paid in a week is not about to be paid.
    */
+  const lateWatchFrom = new Date(Date.now() - LATE_WATCH_MS);
   const wallets = await prisma.depositWallet.findMany({
     where: {
       OR: [
         { intent: { status: { in: ['AWAITING', 'CONFIRMING', 'UNDERPAID'] } } },
         { transactions: { some: { status: 'SEEN' } } },
+        // Recently-closed intents: the window in which a late transfer is
+        // plausible. Bounded by age so the working set cannot grow forever.
+        {
+          sweepStatus: { in: ['NONE', 'PENDING'] },
+          createdAt: { gte: lateWatchFrom },
+        },
       ],
     },
     take: 200,
@@ -365,7 +394,7 @@ export async function runMonitorPass(): Promise<MonitorPassResult> {
    *
    * Topic slots accept an array as an OR, so wallets sharing a starting block
    * share a request. Per-wallet requests would multiply RPC load by the number of
-   * open payments — the failure mode the exchanger's per-wallet loop had.
+   * open payments вЂ” the failure mode the exchanger's per-wallet loop had.
    */
   const byCursor = new Map<string, { from: bigint; addresses: string[]; ids: string[] }>();
   for (const wallet of wallets) {
@@ -403,7 +432,7 @@ export async function runMonitorPass(): Promise<MonitorPassResult> {
       walletsByAddress,
     );
 
-    // Cursor advances only now, after the range's logs are recorded — and only to
+    // Cursor advances only now, after the range's logs are recorded вЂ” and only to
     // the height actually covered. Advancing before, or past an unscanned gap,
     // would turn a failure into a permanently skipped range.
     await prisma.depositWallet.updateMany({
