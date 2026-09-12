@@ -4,19 +4,18 @@ import { describe, it } from 'node:test';
 /**
  * Credential normalisation from the environment.
  *
- * Two distinct faults, both invisible from the storefront:
+ * What these tests pin down: `CASHERA_API_KEY` and `CASHERA_API_SECRET` reach the
+ * rest of the app trimmed and free of surrounding quotes, and a value that is only
+ * whitespace counts as absent rather than making `/health` advertise a rail that
+ * cannot work.
  *
- *  - Surrounding quotes on the key. systemd's `EnvironmentFile` is not a dotenv
- *    parser, so `KEY="pk_…"` keeps its quotes and the header goes out literally,
- *    which Cashera rejects as an unknown key (401). `/health` still says enabled,
- *    because it only checks for non-empty, so the buyer just sees the rail fail.
- *
- *  - A trailing `\r` from a CRLF-edited file on the secret. This one does not
- *    affect the key — Node trims whitespace from header values before sending — but
- *    the secret is compared byte-for-byte against Cashera's `X-Secret`, so webhook
- *    authentication would fail while everything looked configured.
- *
- * Normalisation repairs both and is a no-op for a clean credential.
+ * To be clear about what this is NOT: it is not a fix for the production 401. That
+ * was traced to the credential value itself, and systemd's `EnvironmentFile`
+ * already discards surrounding quotes and trailing carriage returns, so on the
+ * deployed path this transform changes nothing. The value is that every other way
+ * these variables get read — `npm run dev` via Node's `--env-file`, a hand-written
+ * override, a future loader with different quoting rules — gets the same clean
+ * value instead of depending on which mechanism happened to load it.
  */
 
 // config.ts reads process.env at import, so the environment is set first and the

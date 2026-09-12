@@ -461,13 +461,72 @@ describe('create transaction', () => {
     });
   }
 
+  /**
+   * A 401 is not one failure. Verified against the live gateway: an absent key
+   * answers `X-Api-Key header is required.` and a wrong one answers
+   * `Invalid API key.` — both HTTP 401. Without the reason these are
+   * indistinguishable in the log, and they have opposite fixes.
+   */
+  for (const [reason, label] of [
+    ['X-Api-Key header is required.', 'empty key'],
+    ['Invalid API key.', 'unknown key'],
+  ] as const) {
+    it(`keeps Cashera's reason for a 401 so an ${label} is identifiable`, async () => {
+      gateway.status = 401;
+      gateway.body = { message: reason };
+
+      await assert.rejects(
+        () => placeCryptoOrder(),
+        (error: Error & { httpStatus?: number; gatewayMessage?: string }) => {
+          assert.equal(error.httpStatus, 401);
+          assert.equal(
+            error.gatewayMessage,
+            reason,
+            'the gateway reason must survive to the server log',
+          );
+          return true;
+        },
+      );
+    });
+  }
+
+  it('does not leak a provider body that is not a short message', async () => {
+    // The reason is taken from `message` only. An error page carrying request
+    // echoes or internal identifiers must not be forwarded.
+    gateway.status = 401;
+    gateway.body = {
+      message: 'Invalid API key.',
+      debug: { echoed_key: 'pk_should_not_appear', trace: 'internal-123' },
+    };
+
+    await assert.rejects(
+      () => placeCryptoOrder(),
+      (error: Error & { gatewayMessage?: string }) => {
+        assert.equal(error.gatewayMessage, 'Invalid API key.');
+        return true;
+      },
+    );
+  });
+
+  it('caps an unreasonably long gateway message', async () => {
+    gateway.status = 401;
+    gateway.body = { message: 'x'.repeat(5000) };
+
+    await assert.rejects(
+      () => placeCryptoOrder(),
+      (error: Error & { gatewayMessage?: string }) => {
+        assert.equal(error.gatewayMessage?.length, 200);
+        return true;
+      },
+    );
+  });
+
   it('refuses when the gateway returns no uuid', async () => {
     gateway.status = 201;
     gateway.body = { status: 'pending', payment_url: 'https://pay.example/x' };
 
     await assert.rejects(
-      () => placeCardOrder(),
-      (error: Error & { code?: string }) => {
+      () => placeCardOrder(),      (error: Error & { code?: string }) => {
         assert.equal(error.code, 'PAYMENT_PROVIDER_ERROR');
         return true;
       },

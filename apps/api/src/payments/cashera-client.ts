@@ -73,8 +73,25 @@ export interface CreateTransactionInput {
 
 export class CasheraError extends AppError {
   readonly httpStatus: number | null;
+  /**
+   * Cashera's own short reason, when it sent one. Server-side only.
+   *
+   * It distinguishes failures that share a status code. A 401 with
+   * "X-Api-Key header is required." means the key never left our side (empty or
+   * mis-set); a 401 with "Invalid API key." means it did and Cashera did not
+   * recognise it. Both are 401, both look identical to the buyer, and they have
+   * completely different fixes — so the distinction is logged, never shown.
+   *
+   * Not the full body: only a short, capped string, taken from the `message` field.
+   */
+  readonly gatewayMessage: string | null;
 
-  constructor(message: string, httpStatus: number | null, details?: unknown) {
+  constructor(
+    message: string,
+    httpStatus: number | null,
+    details?: unknown,
+    gatewayMessage?: string | null,
+  ) {
     // Mapped to the shop's own taxonomy so a route does not have to know about
     // gateway status codes. 422 is our mistake, everything else is theirs or the
     // network's. `details` rides on AppError, which already renders it into the
@@ -86,6 +103,7 @@ export class CasheraError extends AppError {
     );
     this.name = 'CasheraError';
     this.httpStatus = httpStatus;
+    this.gatewayMessage = gatewayMessage ?? null;
   }
 }
 
@@ -146,11 +164,14 @@ async function request<T>(
       } catch {
         parsed = null;
       }
+      const reason = gatewayMessage(parsed);
 
       if (RETRYABLE_STATUS.has(response.status) && attempt < MAX_ATTEMPTS) {
         lastError = new CasheraError(
           describeStatus(response.status),
           response.status,
+          undefined,
+          reason,
         );
         await sleep(BASE_BACKOFF_MS * 2 ** (attempt - 1));
         continue;
@@ -160,6 +181,7 @@ async function request<T>(
         describeStatus(response.status),
         response.status,
         response.status === 422 ? safeDetails(parsed) : undefined,
+        reason,
       );
     } catch (error) {
       if (error instanceof CasheraError) throw error;
@@ -215,6 +237,22 @@ function describeStatus(status: number): string {
     default:
       return `Ошибка платёжного шлюза (${status}).`;
   }
+}
+
+/**
+ * Cashera's short reason for a failed request, for the server log only.
+ *
+ * Kept deliberately narrow: a single `message` string, capped. A status code alone
+ * cannot separate an empty key ("X-Api-Key header is required.") from an unknown
+ * one ("Invalid API key."), and those need different fixes. The full body is never
+ * taken — a provider's error payload is not ours to forward.
+ */
+function gatewayMessage(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const message = (parsed as Record<string, unknown>).message;
+  return typeof message === 'string' && message.length > 0
+    ? message.slice(0, 200)
+    : null;
 }
 
 /**

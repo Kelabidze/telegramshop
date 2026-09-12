@@ -22,17 +22,26 @@ function line(label: string, value: string): void {
   console.log(`${label.padEnd(26)} ${value}`);
 }
 
-/** Safe description of a credential: enough to spot a quoting/whitespace fault. */
-function describeSecret(name: string, value: string): void {
+/**
+ * Safe description of a credential: prefix and length only, never the value.
+ *
+ * The expected prefix comes from Cashera's own documentation — the API key is the
+ * public `pk_…`, the secret is `sk_…`. Checking it is what makes this tool able to
+ * catch the most common cause of a 401 without reading the credential aloud: the two
+ * variables swapped in `api.env`, which looks perfectly configured and fails on
+ * every request.
+ */
+function describeSecret(name: string, value: string, expectedPrefix: string): boolean {
   if (value.length === 0) {
     line(name, 'MISSING or empty');
-    return;
+    return false;
   }
-  // Prefix and length only. A Cashera key is `pk_…`; anything else — a leading
-  // quote, an unexpected first character — points at an env-file problem.
   const prefix = value.slice(0, 3);
-  const looksQuoted = value.startsWith('"') || value.startsWith("'");
-  line(name, `${prefix}… len=${value.length}${looksQuoted ? ' (QUOTED — not stripped?)' : ''}`);
+  const problems: string[] = [];
+  if (prefix !== expectedPrefix) problems.push(`expected ${expectedPrefix}…`);
+  if (value.startsWith('"') || value.startsWith("'")) problems.push('still QUOTED');
+  line(name, `${prefix}… len=${value.length}${problems.length ? ` (${problems.join(', ')})` : ''}`);
+  return problems.length === 0;
 }
 
 async function main(): Promise<void> {
@@ -44,13 +53,25 @@ async function main(): Promise<void> {
   line('callback configured', config.publicApiUrl || config.publicAppUrl ? 'yes' : 'NO — payments cannot settle');
 
   console.log('\n=== credentials (safe view) ===');
-  describeSecret('CASHERA_API_KEY', config.cashera.apiKey);
-  describeSecret('CASHERA_API_SECRET', config.cashera.apiSecret);
+  const keyLooksRight = describeSecret('CASHERA_API_KEY', config.cashera.apiKey, 'pk_');
+  const secretLooksRight = describeSecret('CASHERA_API_SECRET', config.cashera.apiSecret, 'sk_');
 
   if (!config.cashera.enabled) {
     console.log('\nCannot probe: the rail is disabled. Set both credentials in api.env.');
     process.exitCode = 1;
     return;
+  }
+
+  /**
+   * A prefix check catches the swap that otherwise looks perfectly configured and
+   * fails on every call: the two variables reversed in api.env. Cashera's docs are
+   * explicit that the key is `pk_…` and the secret `sk_…`.
+   */
+  if (!keyLooksRight || !secretLooksRight) {
+    console.log(
+      '\n! Credential prefix mismatch (key should start pk_, secret sk_). ' +
+        'If they are swapped in api.env, every request is rejected as an unknown key.',
+    );
   }
 
   /**
@@ -69,16 +90,38 @@ async function main(): Promise<void> {
   } catch (error) {
     if (error instanceof CasheraError) {
       line('HTTP', String(error.httpStatus ?? 'transport'));
+      /**
+       * Cashera's own reason. It is what separates two failures that share a status:
+       * a 401 reading "X-Api-Key header is required." means the key never left us,
+       * while "Invalid API key." means it did and was not recognised. Both were
+       * confirmed against the live gateway.
+       */
+      if (error.gatewayMessage) line('gateway said', error.gatewayMessage);
+
       switch (error.httpStatus) {
         case 401:
-          console.log('\n✗ 401 from Cashera: the API key was rejected as missing, empty or unknown.');
-          console.log('  Causes, in order of likelihood:');
-          console.log('   - CASHERA_API_KEY is wrapped in quotes in /srv/shop/shared/api.env.');
-          console.log('     systemd EnvironmentFile does not strip them, so the header goes out as');
-          console.log('     X-Api-Key: "pk_…". The client now unquotes, but check the file anyway.');
-          console.log('   - the key was rotated in the Cashera dashboard and api.env was not updated.');
-          console.log('   - the key belongs to a different merchant/account.');
-          console.log('   - the key was pasted from a test/sandbox credential set.');
+          console.log('\n✗ 401 from Cashera: the API key was rejected.');
+          // The gateway's own wording decides which of these it is. Confirmed live:
+          // an absent/empty key and an unrecognised one return different messages
+          // under the same status.
+          if (error.gatewayMessage?.includes('required')) {
+            console.log('  The key arrived empty. CASHERA_API_KEY is unset or blank in');
+            console.log('  /srv/shop/shared/api.env, so check the variable name and that');
+            console.log('  the file is actually loaded by the unit.');
+          } else {
+            console.log('  The key arrived but Cashera does not recognise it. In order of likelihood:');
+            console.log('   - CASHERA_API_KEY and CASHERA_API_SECRET are swapped in api.env.');
+            console.log('     The prefix check above catches this (key is pk_, secret is sk_).');
+            console.log('   - api.env contains the variable TWICE. The documented setup appends with');
+            console.log('     `tee -a`, so a second block overrides the first — a stale placeholder');
+            console.log('     appended after the real key silently wins. Compare len= above with the');
+            console.log('     dashboard value.');
+            console.log('   - the key was rotated in the dashboard and api.env was not updated.');
+            console.log('   - the key belongs to a different merchant or a test/sandbox account.');
+          }
+          console.log('  Quoting and CRLF are NOT the cause: systemd discards surrounding');
+          console.log('  quotes and trailing carriage returns from EnvironmentFile values,');
+          console.log('  and Node trims header values before sending.');
           break;
         case 403:
           console.log('\n✗ 403: the merchant is disabled or cannot accept payments (not a key problem).');

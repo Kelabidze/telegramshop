@@ -20,25 +20,22 @@ const csv = z
   );
 
 /**
- * Normalises a credential read from an environment file.
+ * Normalises a credential read from an environment file: trims, then removes one
+ * matching pair of surrounding quotes.
  *
- * The shop is edited on Windows and deployed to a systemd unit whose
- * `EnvironmentFile` is NOT a dotenv parser. A value written in dotenv style
- * (`KEY="pk_live_…"`) keeps its quotes, because systemd does not strip them the way
- * a dotenv loader would — and the key then goes out as `X-Api-Key: "pk_live_…"`,
- * which Cashera rejects as unknown. That surfaces as a 401 while `/health` still
- * reports the rail enabled, since it only checks that the value is non-empty.
+ * This is defence in depth, not a fix for a known production fault — and it is worth
+ * being precise about that, because an earlier comment here claimed otherwise. The
+ * deployment loads credentials through a systemd `EnvironmentFile`, which per
+ * `systemd.exec(5)` already discards leading and trailing whitespace *including
+ * carriage return*, and treats a `"`-quoted value with POSIX shell semantics, where
+ * the delimiting quotes are consumed. So on the actual production path this
+ * transform is a no-op.
  *
- * Trimming matters for a different reason than the quotes, and it is worth being
- * precise about which is which: a trailing `\r` on the *key* would not have reached
- * the wire at all, because Node trims trailing whitespace from header values before
- * sending. The secret is what trimming really protects — it is compared
- * byte-for-byte against Cashera's `X-Secret` in `secretsMatch`, with no header
- * normalisation in between, so a CRLF-edited `api.env` would fail webhook
- * authentication while looking correctly configured.
- *
- * Both operations are no-ops for a clean value, and a Cashera credential never
- * legitimately contains surrounding quotes or edge whitespace.
+ * It still earns its place: the same variables are read by `npm run dev` through
+ * Node's `--env-file`, by hand-written overrides, and by any future loader whose
+ * quoting rules differ. Cheap, and a no-op for a clean value. A Cashera credential
+ * never legitimately contains surrounding quotes or edge whitespace, so it cannot
+ * corrupt a working key.
  */
 const secret = z
   .string()

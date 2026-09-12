@@ -184,17 +184,24 @@ export async function buildServer() {
     if (error instanceof AppError) {
       // Expected, client-facing failures: log at info level.
       //
-      // A CasheraError also carries the gateway's real HTTP status, which the
-      // buyer-safe message deliberately hides. Logging it here is what lets an
-      // operator tell "the key was rejected (401)" from "the method is not enabled
-      // for this merchant (422)" without the buyer ever seeing either — the two need
-      // different fixes and look identical from the storefront.
+      /**
+       * A CasheraError also carries the gateway's real HTTP status and its short
+       * reason, both of which the buyer-safe message deliberately hides. Logging
+       * them is what lets an operator tell "the key was rejected (401)" from "the
+       * method is not enabled for this merchant (422)", and within a 401, an empty
+       * key from an unknown one — each needs a different fix and all four look
+       * identical from the storefront.
+       *
+       * `gatewayMessage` is Cashera's own public error text, never our credential.
+       */
       const gatewayStatus = (error as { httpStatus?: number | null }).httpStatus;
+      const gatewayMessage = (error as { gatewayMessage?: string | null }).gatewayMessage;
       request.log.info(
         {
           code: error.code,
           reason: error.message,
           ...(gatewayStatus ? { gatewayStatus } : {}),
+          ...(gatewayMessage ? { gatewayMessage } : {}),
         },
         'Request rejected',
       );
