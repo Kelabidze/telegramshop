@@ -19,6 +19,42 @@ const csv = z
       .filter(Boolean),
   );
 
+/**
+ * Normalises a credential read from an environment file.
+ *
+ * The shop is edited on Windows and deployed to a systemd unit whose
+ * `EnvironmentFile` is NOT a dotenv parser. A value written in dotenv style
+ * (`KEY="pk_live_…"`) keeps its quotes, because systemd does not strip them the way
+ * a dotenv loader would — and the key then goes out as `X-Api-Key: "pk_live_…"`,
+ * which Cashera rejects as unknown. That surfaces as a 401 while `/health` still
+ * reports the rail enabled, since it only checks that the value is non-empty.
+ *
+ * Trimming matters for a different reason than the quotes, and it is worth being
+ * precise about which is which: a trailing `\r` on the *key* would not have reached
+ * the wire at all, because Node trims trailing whitespace from header values before
+ * sending. The secret is what trimming really protects — it is compared
+ * byte-for-byte against Cashera's `X-Secret` in `secretsMatch`, with no header
+ * normalisation in between, so a CRLF-edited `api.env` would fail webhook
+ * authentication while looking correctly configured.
+ *
+ * Both operations are no-ops for a clean value, and a Cashera credential never
+ * legitimately contains surrounding quotes or edge whitespace.
+ */
+const secret = z
+  .string()
+  .default('')
+  .transform((v) => {
+    let s = v.trim();
+    if (s.length >= 2) {
+      const first = s[0];
+      const last = s[s.length - 1];
+      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+        s = s.slice(1, -1).trim();
+      }
+    }
+    return s;
+  });
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -193,8 +229,8 @@ const envSchema = z.object({
    * the `X-Secret` header — and is never sent anywhere. It must not be logged, and
    * `server.ts` redacts it.
    */
-  CASHERA_API_KEY: z.string().default(''),
-  CASHERA_API_SECRET: z.string().default(''),
+  CASHERA_API_KEY: secret,
+  CASHERA_API_SECRET: secret,
   CASHERA_BASE_URL: z.string().default('https://api.cashera.cash/api/v1'),
   /**
    * Which Cashera method to charge with, e.g. `sbp` or `card`.

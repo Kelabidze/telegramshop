@@ -65,6 +65,10 @@ const REQUIRED_BUILD_OUTPUTS = [
   // Needed on the server: the legacy XTR catalog can only be repriced where the
   // production database actually lives.
   'apps/api/dist/cli/migrate-product-currency.js',
+  // Read-only Cashera credential probe. Shipped because a 401 on the crypto rail can
+  // only be diagnosed where the real api.env is loaded, and it must be answerable
+  // without creating a payment.
+  'apps/api/dist/cli/cashera-check.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',
 ];

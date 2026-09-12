@@ -17,6 +17,7 @@
     "db:seed:banners": "tsx --env-file-if-exists=.env src/cli/seed-banners.ts",
     "db:seed:abuse": "tsx --env-file-if-exists=.env src/cli/seed-abuse.ts",
     "crypto:check": "tsx --env-file-if-exists=.env src/cli/crypto-check.ts",
+    "cashera:check": "tsx --env-file-if-exists=.env src/cli/cashera-check.ts",
     "crypto:keygen": "tsx src/cli/crypto-keygen.ts",
     "bot:set-webhook": "tsx --env-file-if-exists=.env src/cli/webhook.ts set",
     "bot:delete-webhook": "tsx --env-file-if-exists=.env src/cli/webhook.ts delete"

@@ -286,6 +286,36 @@ export async function getTransaction(
   );
 }
 
+/** One rate row from Cashera's read-only rates endpoint. */
+export interface CasheraRateDto {
+  provider_rate?: string;
+  merchant_rate?: string;
+  fx_markup_percent?: number;
+  updated_at?: string;
+}
+
+/**
+ * Read-only connectivity and credential probe.
+ *
+ * `GET /integration/rates` authenticates with the same `X-Api-Key` as every other
+ * call but creates nothing, so it answers the one question that matters when a
+ * payment fails to open: is the key accepted? A 200 proves the credential is valid
+ * and the merchant is live; a 401 means the key itself was rejected. This is how the
+ * crypto checkout is diagnosed without placing a real transaction.
+ */
+export async function getRates(
+  method: string,
+): Promise<CasheraRateDto> {
+  const query = new URLSearchParams({
+    payment_method: method,
+    currency_from: 'RUB',
+    currency_to: 'USDT',
+  });
+  return request<CasheraRateDto>(`/integration/rates?${query.toString()}`, {
+    method: 'GET',
+  });
+}
+
 /**
  * Status by our own reference.
  *
