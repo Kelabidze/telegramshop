@@ -258,7 +258,8 @@ model Order {
 
   lines OrderLine[]
 
-  cryptoPayment CryptoPaymentIntent?
+  cryptoPayment  CryptoPaymentIntent?
+  casheraPayment CasheraTransaction?
 
   @@index([userId, createdAt])
   @@index([status])
@@ -330,6 +331,82 @@ model ProcessedUpdate {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Cashera (external gateway, RUB via a hosted page)
+//
+// The buyer pays on Cashera's page and the shop learns the outcome from a signed
+// webhook. Two things follow from that, and they shape both models below:
+//
+//  1. A webhook's arrival is not proof of payment. The amount and currency are
+//     checked against the order before anything ships.
+//  2. Webhooks are retried, and can arrive concurrently. Deduplication is a
+//     database constraint, not an in-memory set that a restart would forget.
+// ---------------------------------------------------------------------------
+
+/// One Cashera transaction, for one order.
+///
+/// pending | paid | failed | expired | refunded | chargeback
+model CasheraTransaction {
+  id String @id @default(cuid())
+
+  /// One transaction per order. Unique because a second one would mean two live
+  /// payment links for the same goods, and no correct way to decide which of them
+  /// settles the order — or worse, a buyer paying both.
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// What we sent as `external_id`, and what the webhook echoes back.
+  ///
+  /// Unique so a retry after a lost response cannot produce a second transaction:
+  /// Cashera is idempotent on this value, and so are we.
+  externalId String @unique
+  /// Cashera's own id. Unique: two rows claiming one gateway transaction would
+  /// make reconciliation ambiguous.
+  uuid       String @unique
+
+  status        String @default("pending")
+  /// RUB kopecks — the same unit the order holds and the gateway was sent.
+  amountMinor   Int
+  currency      String @default("RUB")
+  paymentMethod String
+
+  /// Hosted page for the buyer. Not a secret: it is what they are redirected to.
+  paymentUrl String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  paidAt    DateTime?
+
+  events CasheraWebhookEvent[]
+
+  @@index([status])
+}
+
+/// Webhook events already handled, keyed so a replay cannot act twice.
+///
+/// Keyed on (uuid, status) rather than on the uuid alone: a transaction legitimately
+/// reports several statuses over its life (pending, then paid), and each is a
+/// distinct event worth processing exactly once. Persisted rather than held in
+/// memory because a restart must not reopen the window for a duplicate.
+model CasheraWebhookEvent {
+  id String @id @default(cuid())
+
+  transactionUuid String
+  status          String
+  /// Nullable: an event can arrive for a transaction this shop has no row for
+  /// (a stale merchant configuration, or a replay after cleanup). Recording it
+  /// keeps the fact visible instead of dropping it silently.
+  transactionId String?
+  transaction   CasheraTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  receivedAt DateTime @default(now())
+
+  /// The deduplication mechanism. A concurrent duplicate loses at the database,
+  /// which is the only place that can arbitrate it.
+  @@unique([transactionUuid, status])
+  @@index([receivedAt])
 }
 
 // ---------------------------------------------------------------------------

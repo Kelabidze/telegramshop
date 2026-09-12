@@ -34,12 +34,15 @@ export function CartScreen({
   onContinueShopping,
   onOpenOrders,
   onOpenCryptoPayment,
+  onOpenCasheraPayment,
 }: {
   isSubscribedChannel: boolean;
   onContinueShopping: () => void;
   onOpenOrders: () => void;
   /** Opens the waiting screen for an on-chain payment. */
   onOpenCryptoPayment: (orderId: string) => void;
+  /** Opens the waiting screen for a card payment. */
+  onOpenCasheraPayment: (orderId: string) => void;
 }) {
   const lines = useCart((s) => s.lines);
   const setQuantity = useCart((s) => s.setQuantity);
@@ -72,6 +75,7 @@ export function CartScreen({
   });
   const rates = optionsQuery.data?.rates ?? null;
   const usdtAvailable = optionsQuery.data?.usdtAvailable === true;
+  const cardAvailable = optionsQuery.data?.cardAvailable === true;
 
   /**
    * Prices in both rails, from the same RUB base and the same rates the server
@@ -82,9 +86,23 @@ export function CartScreen({
    */
   const starsMinor = rates ? starsForRubMinor(totals.payableMinor, rates) : null;
   const usdtMinor = rates ? usdtMinorForRubMinor(totals.payableMinor, rates) : null;
+  // No conversion: the cart total already IS roubles.
+  const rubMinor = totals.payableMinor;
   const isRubPriced = currency === 'RUB';
+
+  /**
+   * Fall back to Stars when the chosen rail is not actually available.
+   *
+   * Stars always works, so it is the safe default — offering a method the server
+   * would refuse at checkout is worse than not offering it.
+   */
+  const railAvailable: Record<PaymentCurrency, boolean> = {
+    XTR: true,
+    USDT: usdtAvailable,
+    RUB: cardAvailable,
+  };
   const effectivePayWith: PaymentCurrency =
-    isRubPriced && usdtAvailable ? payWith : 'XTR';
+    isRubPriced && railAvailable[payWith] ? payWith : 'XTR';
 
   async function checkout() {
     if (lines.length === 0 || isSubmitting) return;
@@ -106,6 +124,16 @@ export function CartScreen({
         haptic('success');
         await queryClient.invalidateQueries({ queryKey: ['orders'] });
         onOpenCryptoPayment(session.order.id);
+        return;
+      }
+
+      // Card: the gateway hosts the payment page, so this hands over to a waiting
+      // screen that offers the link and then verifies with the server.
+      if (session.casheraPayment) {
+        clear();
+        haptic('success');
+        await queryClient.invalidateQueries({ queryKey: ['orders'] });
+        onOpenCasheraPayment(session.order.id);
         return;
       }
 
@@ -175,7 +203,9 @@ export function CartScreen({
     isRubPriced && starsMinor !== null && usdtMinor !== null
       ? effectivePayWith === 'USDT'
         ? formatMoney(usdtMinor, 'USDT')
-        : formatMoney(starsMinor, 'XTR')
+        : effectivePayWith === 'RUB'
+          ? formatMoney(rubMinor, 'RUB')
+          : formatMoney(starsMinor, 'XTR')
       : currency
         ? // Rates have not arrived yet (or a legacy XTR-priced cart): name the
           // base amount rather than guessing a converted one.
@@ -288,7 +318,9 @@ export function CartScreen({
             value={effectivePayWith}
             starsMinor={starsMinor}
             usdtMinor={usdtMinor}
+            rubMinor={rubMinor}
             usdtAvailable={usdtAvailable}
+            cardAvailable={cardAvailable}
             onChange={setPayWith}
           />
         </div>

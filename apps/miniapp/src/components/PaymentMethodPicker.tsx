@@ -13,18 +13,36 @@ export function PaymentMethodPicker({
   value,
   starsMinor,
   usdtMinor,
+  rubMinor,
   usdtAvailable,
+  cardAvailable,
   onChange,
 }: {
   value: PaymentCurrency;
   starsMinor: number;
   usdtMinor: number;
+  /** RUB kopecks. No conversion on this rail — it is the base price itself. */
+  rubMinor: number;
   /** False when the server has on-chain payments switched off. */
   usdtAvailable: boolean;
+  /** False when the card gateway is not configured. */
+  cardAvailable: boolean;
   onChange: (next: PaymentCurrency) => void;
 }) {
   return (
     <div className="pay-methods">
+      {/*
+        Card first: it is the familiar option, and the one most buyers will take.
+        Ordering by expected use rather than by when it was implemented.
+      */}
+      <PaymentMethodOption
+        selected={value === 'RUB'}
+        title="Карта · СБП"
+        amount={formatMoney(rubMinor, 'RUB')}
+        caption={cardAvailable ? 'Оплата в рублях' : 'Временно недоступно'}
+        disabled={!cardAvailable}
+        onSelect={() => onChange('RUB')}
+      />
       <PaymentMethodOption
         selected={value === 'XTR'}
         title="Telegram Stars"

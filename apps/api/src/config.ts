@@ -157,6 +157,28 @@ const envSchema = z.object({
   /** Where swept funds are destined. Sweeping is a later phase. */
   CRYPTO_TREASURY_ADDRESS: z.string().default(''),
 
+  // ---- Cashera (external gateway, RUB) -------------------------------------
+  /**
+   * Credentials for the gateway. Server-side only.
+   *
+   * `CASHERA_API_SECRET` authenticates *inbound* webhooks — it is compared against
+   * the `X-Secret` header — and is never sent anywhere. It must not be logged, and
+   * `server.ts` redacts it.
+   */
+  CASHERA_API_KEY: z.string().default(''),
+  CASHERA_API_SECRET: z.string().default(''),
+  CASHERA_BASE_URL: z.string().default('https://api.cashera.cash/api/v1'),
+  /**
+   * Which Cashera method to charge with, e.g. `sbp`.
+   *
+   * Configuration rather than a literal in the checkout path: the set a merchant
+   * may use is decided in Cashera's dashboard, not in this code, and one shop
+   * changing method should not need a deploy.
+   */
+  CASHERA_PAYMENT_METHOD: z.string().default('sbp'),
+  /** Per-request timeout, milliseconds. */
+  CASHERA_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(60_000).default(15_000),
+
   CORS_ORIGINS: csv,
   ADMIN_TELEGRAM_IDS: csv,
 
@@ -343,6 +365,21 @@ export const config = {
   rates: {
     usdtRubMinorPerUnit: raw.USDT_RUB_RATE * 100,
     starRubMinorPerUnit: raw.STAR_RUB_MINOR_RATE,
+  },
+
+  cashera: {
+    /**
+     * Both credentials are required. The key alone could create transactions but
+     * could not authenticate the webhook that reports them paid, which would mean
+     * taking money with no way to recognise it — worse than not offering the rail.
+     */
+    enabled:
+      raw.CASHERA_API_KEY.length > 0 && raw.CASHERA_API_SECRET.length > 0,
+    apiKey: raw.CASHERA_API_KEY,
+    apiSecret: raw.CASHERA_API_SECRET,
+    baseUrl: raw.CASHERA_BASE_URL.replace(/\/+$/, ''),
+    paymentMethod: raw.CASHERA_PAYMENT_METHOD,
+    timeoutMs: raw.CASHERA_TIMEOUT_MS,
   },
 
   crypto: {

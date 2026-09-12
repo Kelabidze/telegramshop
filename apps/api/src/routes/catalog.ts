@@ -42,6 +42,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
     const options: PaymentOptions = {
       rates: config.rates,
       usdtAvailable: config.crypto.enabled,
+      cardAvailable: config.cashera.enabled,
     };
     return options;
   });

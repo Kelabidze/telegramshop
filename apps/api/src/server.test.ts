@@ -142,7 +142,11 @@ describe('payment options', () => {
 
   it('exposes nothing beyond rates and availability', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/payment-options' });
-    assert.deepEqual(Object.keys(res.json()).sort(), ['rates', 'usdtAvailable']);
+    assert.deepEqual(Object.keys(res.json()).sort(), [
+      'cardAvailable',
+      'rates',
+      'usdtAvailable',
+    ]);
     // Specifically not the xpub, the endpoints, or the contract.
     const raw = res.body.toLowerCase();
     for (const forbidden of ['xpub', 'http', 'rpc', '0x']) {

@@ -10,6 +10,7 @@ import { CatalogScreen } from './screens/CatalogScreen.tsx';
 import { AbuseScreen } from './screens/AbuseScreen.tsx';
 import { ProductScreen } from './screens/ProductScreen.tsx';
 import { CartScreen } from './screens/CartScreen.tsx';
+import { CasheraPaymentScreen } from './screens/CasheraPaymentScreen.tsx';
 import { CryptoPaymentScreen } from './screens/CryptoPaymentScreen.tsx';
 import { OrdersScreen } from './screens/OrdersScreen.tsx';
 import { ProfileScreen } from './screens/ProfileScreen.tsx';
@@ -33,7 +34,7 @@ type View =
   /**
    * The full listing. `category` is where Home's picker hands over its choice:
    * the tile promises a filtered catalog, and dropping the slug on the way there
-   * would land the user on «Все товары» with nothing to explain why.
+   * would land the user on В«Р’СЃРµ С‚РѕРІР°СЂС‹В» with nothing to explain why.
    */
   | { name: 'catalog'; category?: string | null }
   | { name: 'abuse' }
@@ -43,14 +44,16 @@ type View =
   | { name: 'profile' }
   | { name: 'home' }
   /** Waiting for an on-chain payment. Carries the order it settles. */
-  | { name: 'crypto-payment'; orderId: string };
+  | { name: 'crypto-payment'; orderId: string }
+  /** Waiting for a card payment on the gateway's hosted page. */
+  | { name: 'cashera-payment'; orderId: string };
 
 /**
  * Which tab stays highlighted for a given screen.
  *
  * A pushed screen keeps its parent tab lit rather than clearing the selection:
  * an unlit tab bar reads as "you are nowhere". The profile is not a tab, so it
- * inherits the tab it was opened from — tracked separately, because the stack
+ * inherits the tab it was opened from вЂ” tracked separately, because the stack
  * is reset to a single entry when the profile is opened from a header tap.
  */
 function tabForView(view: View, fallback: TabName): TabName {
@@ -70,8 +73,9 @@ function tabForView(view: View, fallback: TabName): TabName {
     case 'orders':
       return 'orders';
     // Reached from the cart, and the payment it is waiting for belongs to an
-    // order — either tab is defensible, and Orders is where the buyer goes next.
+    // order вЂ” either tab is defensible, and Orders is where the buyer goes next.
     case 'crypto-payment':
+    case 'cashera-payment':
       return 'orders';
     case 'profile':
       return fallback;
@@ -82,8 +86,8 @@ function tabForView(view: View, fallback: TabName): TabName {
  * Resolves a view against the mode that is actually rendering it.
  *
  * Only `home` needs this. Every other entry in the stack means the same thing in
- * both modes, because the tab slots keep their identity across the staff remap —
- * `cart` is the slot, "Корзина" or "Люди" is only its label.
+ * both modes, because the tab slots keep their identity across the staff remap вЂ”
+ * `cart` is the slot, "РљРѕСЂР·РёРЅР°" or "Р›СЋРґРё" is only its label.
  *
  * `home` has no staff counterpart: staff mode turns the four slots into admin
  * screens and has no editorial hub. Mapping it onto the catalog slot is what
@@ -99,7 +103,7 @@ function resolveView(view: View, isStaffMode: boolean): View {
  * The catalog slot holds two screens in shopper mode: `home` is its root, and
  * the full listing is reached from inside it. So the slot's root is not the tab
  * name, and everything that compares "am I already on this tab?" has to ask this
- * function rather than the tab name — otherwise the listing reports itself as
+ * function rather than the tab name вЂ” otherwise the listing reports itself as
  * the root and the tab stops being a way back out of it.
  */
 function rootViewForTab(tab: TabName, isStaffMode: boolean): View {
@@ -128,7 +132,7 @@ export function App() {
    *
    * The flag survives in localStorage, but `/api/me` arrives later and can fail.
    * Trusting the flag on its own would paint the admin screens for a buyer (or
-   * for a demoted admin) until the profile landed — the API would refuse every
+   * for a demoted admin) until the profile landed вЂ” the API would refuse every
    * call behind them, but showing them at all is wrong.
    */
   const canUseStaffMode = viewer?.role === 'ADMIN';
@@ -137,11 +141,11 @@ export function App() {
   /**
    * What staff mode actually renders.
    *
-   * The stack can hold `home` while staff mode is on — `/api/me` decides the mode
+   * The stack can hold `home` while staff mode is on вЂ” `/api/me` decides the mode
    * and lands after the first render, so an admin returning with the persisted
    * flag starts on the shopper root and gets switched underneath it. Staff mode
    * has no `home` branch, so without this remap every one of its four `current
-   * .name === …` checks missed and the content area rendered empty: a tab bar and
+   * .name === вЂ¦` checks missed and the content area rendered empty: a tab bar and
    * a mode switch over nothing, which is exactly what "admin is broken" looked
    * like. Same blank on the way back from the profile, whose stack entry below it
    * is `home`.
@@ -193,7 +197,7 @@ export function App() {
       onToggleStaffMode={() => {
         haptic('selection');
         toggleStaffMode();
-        // Back to the first tab: staying on "Финансы" while switching to the
+        // Back to the first tab: staying on "Р¤РёРЅР°РЅСЃС‹" while switching to the
         // shopper view would land on Orders, which is a different screen than
         // the one that was on display.
         //
@@ -286,6 +290,17 @@ export function App() {
               onOpenCryptoPayment={(orderId) =>
                 resetTo({ name: 'crypto-payment', orderId })
               }
+              onOpenCasheraPayment={(orderId) =>
+                resetTo({ name: 'cashera-payment', orderId })
+              }
+            />
+          ) : null}
+
+          {view.name === 'cashera-payment' ? (
+            <CasheraPaymentScreen
+              orderId={view.orderId}
+              onDone={() => resetTo({ name: 'orders' })}
+              onBackToCatalog={() => resetTo({ name: 'home' })}
             />
           ) : null}
 
@@ -314,7 +329,7 @@ export function App() {
 function DevBanner() {
   return (
     <div className="dev-banner">
-      Открыто вне Telegram: оплата недоступна, вход — только в dev-режиме.
+      РћС‚РєСЂС‹С‚Рѕ РІРЅРµ Telegram: РѕРїР»Р°С‚Р° РЅРµРґРѕСЃС‚СѓРїРЅР°, РІС…РѕРґ вЂ” С‚РѕР»СЊРєРѕ РІ dev-СЂРµР¶РёРјРµ.
     </div>
   );
 }

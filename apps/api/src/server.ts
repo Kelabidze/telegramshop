@@ -16,6 +16,7 @@ import { adminRoutes } from './routes/admin.js';
 import { catalogRoutes } from './routes/catalog.js';
 import { orderRoutes } from './routes/orders.js';
 import { cryptoPaymentRoutes } from './routes/crypto-payments.js';
+import { casheraRoutes, casheraWebhookRoutes } from './routes/cashera.js';
 import { botRoutes } from './routes/bot.js';
 import { userRoutes } from './routes/users.js';
 import { isDerivationAvailable } from './crypto/addresses.js';
@@ -81,6 +82,10 @@ export async function buildServer() {
           'req.headers.authorization',
           'req.headers["x-telegram-init-data"]',
           'req.headers["x-telegram-bot-api-secret-token"]',
+          // Cashera authenticates its webhooks with these two headers. The secret
+          // in particular must never reach a log line.
+          'req.headers["x-api-key"]',
+          'req.headers["x-secret"]',
           'xpub',
           'mnemonic',
           'privateKey',
@@ -246,18 +251,36 @@ export async function buildServer() {
       uploadsReady,
       devAuth: config.devAuthEnabled,
       crypto: await cryptoHealth(),
+      /**
+       * Card payments. Whether the rail is on, and the non-secret parts of how it
+       * is configured — enough to tell "switched off" from "misconfigured" without
+       * disclosing the key, the secret, or the base URL.
+       */
+      cashera: {
+        enabled: config.cashera.enabled,
+        paymentMethod: config.cashera.enabled
+          ? config.cashera.paymentMethod
+          : null,
+        // A gateway cannot call back without this, so its absence is the most
+        // likely reason a payment never settles.
+        callbackConfigured: Boolean(config.publicApiUrl || config.publicAppUrl),
+      },
     };
   });
 
   await app.register(catalogRoutes, { prefix: '/api' });
   await app.register(orderRoutes, { prefix: '/api' });
   await app.register(cryptoPaymentRoutes, { prefix: '/api' });
+  await app.register(casheraRoutes, { prefix: '/api' });
   await app.register(userRoutes, { prefix: '/api' });
   // Management endpoints. Same `/api` prefix as the public ones: they are told
   // apart by their pre-handlers, not by the URL, so no path can be mistaken for
   // public just because it lacks an `/admin` segment.
   await app.register(adminRoutes, { prefix: '/api' });
   await app.register(botRoutes);
+  // No `/api` prefix: the gateway's callback and the hosted-page return URLs are
+  // not part of the Mini App contract and authenticate differently.
+  await app.register(casheraWebhookRoutes);
 
   return app;
 }

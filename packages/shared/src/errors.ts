@@ -21,6 +21,10 @@ export const API_ERROR_CODES = [
   'PAYMENT_INTENT_EXPIRED',
   /** No deposit address could be issued (derivation misconfigured or exhausted). */
   'DEPOSIT_ADDRESS_UNAVAILABLE',
+  /** Card/SBP payments are switched off, or configured without credentials. */
+  'CARD_PAYMENTS_DISABLED',
+  /** The payment gateway refused or could not be reached. */
+  'PAYMENT_PROVIDER_ERROR',
   'RATE_LIMITED',
   'INTERNAL_ERROR',
 ] as const;
@@ -52,6 +56,10 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   PAYMENT_INTENT_EXISTS: 409,
   PAYMENT_INTENT_EXPIRED: 409,
   DEPOSIT_ADDRESS_UNAVAILABLE: 503,
+  CARD_PAYMENTS_DISABLED: 503,
+  // 502: the failure is upstream, and saying so distinguishes "the gateway is
+  // unhappy" from "we sent something invalid".
+  PAYMENT_PROVIDER_ERROR: 502,
   RATE_LIMITED: 429,
   INTERNAL_ERROR: 500,
 };

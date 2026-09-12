@@ -9,6 +9,7 @@ import type {
   CheckoutSession,
   Country,
   CountryInput,
+  CasheraPayment,
   CountryUpdate,
   CreateOrderInput,
   CryptoPayment,
@@ -295,6 +296,32 @@ export const api = {
       `/api/orders/${encodeURIComponent(orderId)}/crypto-payment/cancel`,
       { method: 'POST' },
     ).then((r) => r.cryptoPayment),
+
+  // ---- card / SBP payments (Cashera) ---------------------------------------
+
+  /** Opens the hosted payment, or returns the one this order already has. */
+  createCasheraPayment: (orderId: string) =>
+    request<{ casheraPayment: CasheraPayment }>(
+      `/api/orders/${encodeURIComponent(orderId)}/cashera-payment`,
+      { method: 'POST' },
+    ).then((r) => r.casheraPayment),
+
+  getCasheraPayment: (orderId: string) =>
+    request<{ casheraPayment: CasheraPayment }>(
+      `/api/orders/${encodeURIComponent(orderId)}/cashera-payment`,
+    ).then((r) => r.casheraPayment),
+
+  /**
+   * Asks the server to re-read the gateway.
+   *
+   * The recovery path for a webhook that was late or lost. Deliberately explicit:
+   * it costs an upstream call, so it is not part of the poll.
+   */
+  refreshCasheraPayment: (orderId: string) =>
+    request<{ casheraPayment: CasheraPayment }>(
+      `/api/orders/${encodeURIComponent(orderId)}/cashera-payment/refresh`,
+      { method: 'POST' },
+    ).then((r) => r.casheraPayment),
 
   // ---- staff ---------------------------------------------------------------
 

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { amountMinorSchema, currencySchema } from './money.js';
 import { type PaymentCurrency, paymentCurrencySchema } from './base-price.js';
 import { cryptoPaymentSchema } from './crypto-payment.js';
+import { casheraPaymentSchema } from './cashera.js';
 import { cuidSchema, fulfillmentKindSchema } from './catalog.js';
 
 export const MAX_LINE_QUANTITY = 99;
@@ -108,6 +109,8 @@ export const checkoutSessionSchema = z.object({
   invoiceUrl: z.string().url().nullable(),
   /** On-chain payment details. Null for Stars and free orders. */
   cryptoPayment: cryptoPaymentSchema.nullable().default(null),
+  /** Cashera (RUB) payment details. Null for every other rail. */
+  casheraPayment: casheraPaymentSchema.nullable().default(null),
 });
 export type CheckoutSession = z.infer<typeof checkoutSessionSchema>;
 

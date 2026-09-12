@@ -36,14 +36,41 @@ export const paymentRatesSchema = z.object({
 export type PaymentRates = z.infer<typeof paymentRatesSchema>;
 
 /**
- * Currencies a buyer can be charged in, as opposed to the base currency.
+ * Currencies a buyer can be charged in.
  *
- * RUB is deliberately absent: nothing charges roubles directly today, it is the
- * unit of account. Adding a rouble card provider later means adding it here.
+ * RUB is here now: Cashera charges roubles directly, so for that rail the base
+ * currency and the charged currency are the same and no conversion happens at
+ * all. That is why `convertRubMinor` is never called for RUB — a rate of 1:1
+ * would still round, and rounding a number that needs no conversion is how a
+ * price picks up a stray kopeck.
  */
-export const PAYMENT_CURRENCIES = ['XTR', 'USDT'] as const;
+export const PAYMENT_CURRENCIES = ['XTR', 'USDT', 'RUB'] as const;
 export const paymentCurrencySchema = z.enum(PAYMENT_CURRENCIES);
 export type PaymentCurrency = z.infer<typeof paymentCurrencySchema>;
+
+/**
+ * Which provider settles which currency.
+ *
+ * Separate from the currency because they are different questions: a currency is
+ * what the buyer is charged in, a provider is who moves the money. Two providers
+ * could settle roubles one day, and this is where that choice would live.
+ */
+export const PAYMENT_PROVIDERS = ['telegram', 'cashera', 'native_bep20'] as const;
+export const paymentProviderSchema = z.enum(PAYMENT_PROVIDERS);
+export type PaymentProviderName = z.infer<typeof paymentProviderSchema>;
+
+export function providerForCurrency(
+  currency: PaymentCurrency,
+): PaymentProviderName {
+  switch (currency) {
+    case 'XTR':
+      return 'telegram';
+    case 'RUB':
+      return 'cashera';
+    case 'USDT':
+      return 'native_bep20';
+  }
+}
 
 /**
  * Rounding for every RUB -> payable conversion: **ceil**.
@@ -104,6 +131,11 @@ export function payableMinorForCurrency(
       return starsForRubMinor(baseRubMinor, rates);
     case 'USDT':
       return usdtMinorForRubMinor(baseRubMinor, rates);
+    // Identity. The base currency IS roubles, so there is nothing to convert and
+    // nothing to round: 499 ₽ is 49900 kopecks, which is exactly what the base
+    // price already holds and exactly what Cashera is sent.
+    case 'RUB':
+      return baseRubMinor;
   }
 }
 
@@ -117,6 +149,10 @@ export function rateForCurrency(
       return rates.starRubMinorPerUnit;
     case 'USDT':
       return rates.usdtRubMinorPerUnit;
+    // 100 kopecks per rouble: the snapshot stays truthful (`base / rate` is the
+    // major-unit price) without implying a conversion took place.
+    case 'RUB':
+      return RUB_MINOR_PER_UNIT;
   }
 }
 
@@ -146,5 +182,7 @@ export const paymentOptionsSchema = z.object({
   rates: paymentRatesSchema,
   /** False when the server has on-chain payments switched off. */
   usdtAvailable: z.boolean(),
+  /** False when the card gateway is not configured. Defaulted for older clients. */
+  cardAvailable: z.boolean().default(false),
 });
 export type PaymentOptions = z.infer<typeof paymentOptionsSchema>;

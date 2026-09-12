@@ -128,9 +128,23 @@ describe('payment currency dispatch', () => {
   it('recognises only currencies a buyer can actually be charged in', () => {
     assert.equal(isPaymentCurrency('XTR'), true);
     assert.equal(isPaymentCurrency('USDT'), true);
-    // RUB is the unit of account, not a rail: nothing charges roubles directly.
-    assert.equal(isPaymentCurrency('RUB'), false);
+    // RUB became a rail when the card gateway arrived: it is both the unit of
+    // account and, for that provider, the charged currency — which is exactly why
+    // nothing converts on that path.
+    assert.equal(isPaymentCurrency('RUB'), true);
+    // Still not chargeable: no provider settles these.
     assert.equal(isPaymentCurrency('EUR'), false);
+    assert.equal(isPaymentCurrency('USD'), false);
+  });
+
+  it('converts nothing for RUB, because the base already is roubles', () => {
+    // The identity case. Running it through the rate machinery would round a
+    // number that needs no rounding, which is how a price picks up a kopeck.
+    for (const kopecks of [1, 499, 49_900, 129_000, 999_999]) {
+      assert.equal(payableMinorForCurrency(kopecks, 'RUB', RATES), kopecks);
+    }
+    // And the snapshot states the unit rather than implying a conversion.
+    assert.equal(rateForCurrency('RUB', RATES), 100);
   });
 });
 

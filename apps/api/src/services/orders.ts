@@ -1,6 +1,7 @@
-﻿import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   type CreateOrderInput,
+  type CasheraPayment,
   type CryptoPayment,
   type Order,
   type OrderLine,
@@ -102,6 +103,7 @@ export interface CreatedOrder {
   order: Order;
   invoiceUrl: string | null;
   cryptoPayment: CryptoPayment | null;
+  casheraPayment: CasheraPayment | null;
 }
 
 export async function createOrder(
@@ -170,7 +172,14 @@ export async function createOrder(
   if (chargeCurrency === 'USDT' && !config.crypto.enabled) {
     throw new AppError(
       'CRYPTO_PAYMENTS_DISABLED',
-      'РћРїР»Р°С‚Р° USDT СЃРµР№С‡Р°СЃ РЅРµРґРѕСЃС‚СѓРїРЅР°.',
+      'Оплата USDT сейчас недоступна.',
+    );
+  }
+
+  if (chargeCurrency === 'RUB' && !config.cashera.enabled) {
+    throw new AppError(
+      'CARD_PAYMENTS_DISABLED',
+      'Оплата картой сейчас недоступна.',
     );
   }
 
@@ -290,6 +299,7 @@ export async function createOrder(
       order: paid ?? toApiOrder(order),
       invoiceUrl: null,
       cryptoPayment: null,
+      casheraPayment: null,
     };
   }
 
@@ -307,6 +317,24 @@ export async function createOrder(
       order: toApiOrder(order),
       invoiceUrl: null,
       cryptoPayment,
+      casheraPayment: null,
+    };
+  }
+
+  /**
+   * Card / SBP goes to an external gateway, which answers with a hosted page.
+   *
+   * Created here for the same reason as the on-chain intent: an order that is
+   * payable in principle but has nowhere to pay is a dead end for the buyer.
+   */
+  if (chargeCurrency === 'RUB') {
+    const { createPaymentForOrder } = await import('./cashera-payments.js');
+    const casheraPayment = await createPaymentForOrder(order.id);
+    return {
+      order: toApiOrder(order),
+      invoiceUrl: null,
+      cryptoPayment: null,
+      casheraPayment,
     };
   }
 
@@ -338,6 +366,7 @@ export async function createOrder(
     order: toApiOrder({ ...order, invoiceUrl }),
     invoiceUrl,
     cryptoPayment: null,
+    casheraPayment: null,
   };
 }
 
@@ -537,6 +566,12 @@ export type MarkPaidInput =
     }
   | {
       kind: 'crypto';
+      orderId: string;
+    }
+  | {
+      // The external gateway's own receipt lives on `CasheraTransaction`, so
+      // nothing extra needs carrying here — the order id is enough.
+      kind: 'cashera';
       orderId: string;
     };
 
