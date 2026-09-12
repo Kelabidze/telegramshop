@@ -20,7 +20,15 @@ ochkisk.shop {
 	# --- API + bot webhook ---------------------------------------------------
 	# Everything the backend owns is proxied to the Node process on localhost.
 	# The API is never exposed directly to the internet.
-	@backend path /api/* /health /telegram/*
+	#
+	# This list is explicit, so a new unprefixed backend route has to be added
+	# here too — otherwise it falls through to the SPA handler below and answers
+	# `405 Allow: GET, HEAD` to a POST, which is what happened to the payment
+	# gateway's callback the first time it was deployed.
+	#
+	# /webhooks/*  payment provider callbacks (Cashera). Must accept POST.
+	# /pay/*       hosted-checkout return pages, which redirect into the Mini App.
+	@backend path /api/* /health /telegram/* /webhooks/* /pay/*
 	handle @backend {
 		reverse_proxy 127.0.0.1:8080 {
 			# Preserve the real client IP so the API's rate limiter works.
