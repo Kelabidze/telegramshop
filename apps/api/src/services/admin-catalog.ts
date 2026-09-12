@@ -13,7 +13,7 @@
   productSectionSchema,
 } from '@shop/shared';
 import { prisma } from '../db.js';
-import { conflict, notFound, validationError } from '../errors.js';
+import { AppError, conflict, notFound, validationError } from '../errors.js';
 
 /**
  * Catalog management (staff writes).
@@ -214,7 +214,11 @@ export async function createProduct(
     return { id: row.id, keysAdded };
   } catch (error) {
     if (isUniqueViolation(error)) {
-      throw conflict(`Product slug "${input.slug}" is already in use.`);
+      // The clash is often with a *hidden* product: "delete" deactivates rather
+      // than removes, because an ordered product has to stay readable. Staff
+      // recreating a product they just deleted would otherwise get a bare conflict
+      // about a slug they cannot see anywhere in the catalogue.
+      throw await slugConflict(input.slug);
     }
     // A categoryId pointing at nothing violates the foreign key.
     if (isForeignKeyViolation(error)) {
@@ -231,6 +235,34 @@ function isForeignKeyViolation(error: unknown): boolean {
     'code' in error &&
     (error as { code?: unknown }).code === 'P2003'
   );
+}
+
+/**
+ * Explains a slug clash, naming the deactivated product when that is the cause.
+ *
+ * Deletion here is deactivation — `OrderLine.product` is `onDelete: Restrict`, so a
+ * product that has ever been ordered cannot be removed, and should not be. The slug
+ * stays taken, which is invisible from the catalogue: staff who delete a product and
+ * recreate it with the same slug hit a conflict about something they can no longer
+ * see. This says which product holds it and what to do.
+ */
+async function slugConflict(slug: string | undefined): Promise<AppError> {
+  if (!slug) return conflict('Product slug is already in use.');
+
+  const existing = await prisma.product.findUnique({
+    where: { slug },
+    select: { title: true, isActive: true },
+  });
+
+  if (existing && !existing.isActive) {
+    return conflict(
+      `Slug "${slug}" belongs to the hidden product "${existing.title}". ` +
+        'Deleting a product only hides it, so old orders stay readable, and the slug ' +
+        'stays taken. Edit that product and re-enable it, or use a different slug.',
+    );
+  }
+
+  return conflict(`Product slug "${slug}" is already in use.`);
 }
 
 export async function updateProduct(
@@ -271,7 +303,7 @@ export async function updateProduct(
     await prisma.product.update({ where: { id }, data });
   } catch (error) {
     if (isUniqueViolation(error)) {
-      throw conflict(`Product slug "${String(input.slug)}" is already in use.`);
+      throw await slugConflict(input.slug);
     }
     if (isMissingRecord(error)) {
       throw notFound(`Product ${id} was not found.`);

@@ -856,6 +856,51 @@ describe('base currency', () => {
     assert.equal(row.amountMinor, 19_500);
   });
 
+  it('explains that a deleted product still holds its slug', async () => {
+    // The path staff hit when rebuilding a catalogue: delete a product, then create
+    // it again with the same slug. Deletion is deactivation, because an ordered
+    // product has to stay readable, so the slug is still taken — by a row that is no
+    // longer visible anywhere in the catalogue. A bare "already in use" would be
+    // impossible to act on.
+    const created = await call({
+      method: 'POST',
+      url: '/api/products',
+      as: IDS.keyManager,
+      body: {
+        slug: 'to-be-replaced',
+        title: 'Старая версия',
+        amountMinor: 10_000,
+        fulfillmentKind: 'LINK',
+        staticPayload: 'https://example.test/old',
+      },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+
+    await call({
+      method: 'DELETE',
+      url: `/api/products/${created.json().id}`,
+      as: IDS.keyManager,
+    });
+
+    const again = await call({
+      method: 'POST',
+      url: '/api/products',
+      as: IDS.keyManager,
+      body: {
+        slug: 'to-be-replaced',
+        title: 'Новая версия',
+        amountMinor: 49_900,
+        fulfillmentKind: 'LINK',
+        staticPayload: 'https://example.test/new',
+      },
+    });
+
+    assert.equal(again.statusCode, 409, again.body);
+    const { message } = again.json().error;
+    assert.match(message, /Старая версия/, 'name the product holding the slug');
+    assert.match(message, /hidden/i, 'say that it is hidden, not missing');
+  });
+
   it('leaves a RUB product repriceable without ceremony', async () => {
     const row = await prisma.product.findUniqueOrThrow({
       where: { slug: 'currency-default' },

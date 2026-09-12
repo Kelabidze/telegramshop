@@ -60,7 +60,10 @@ export function ZoneNowSection() {
  */
 function getZoneNowContent(): ZoneNowContent | null {
   return {
-    title: 'Telegram Stars теперь в магазине',
-    text: 'Оплачивайте товары через Telegram Stars — быстро, безопасно, без комиссий.',
+    title: 'Три способа оплаты',
+    // No claim about fees: Telegram takes a cut of every Stars purchase, so
+    // "без комиссий" was simply false. What is worth saying is that the price is
+    // the same on every rail — the buyer picks by convenience, not by cost.
+    text: 'Telegram Stars, карта или USDT — цена одна, выбирайте что удобнее.',
   };
 }

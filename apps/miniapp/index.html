@@ -29,15 +29,16 @@
       }
     </style>
     <!--
-      The mark lives in `public/`, which Vite copies to the root of `dist`, so this
-      URL is fixed and needs no build-time interpolation.
+      Both icons live in `public/`, which Vite copies to the root of `dist`, so these
+      URLs are fixed and need no build-time interpolation.
 
-      SVG only. `apple-touch-icon` wants a PNG at a specific pixel size, and there is
-      no PNG export of the mark in the pack — a <link> to a file that does not exist
-      is a 404 on every cold start, which is worse than letting iOS fall back to a
-      screenshot of the page.
+      iOS ignores `apple-touch-icon` unless it is a raster image at a real pixel
+      size, so the SVG cannot cover both cases. The PNG is generated from the same
+      mark by `tools/build-apple-touch-icon.mjs` and committed — regenerate it when
+      the logo changes.
     -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>OCHKISK ZONE</title>
     <!--
       The Telegram WebApp script must load before the app so `window.Telegram`
