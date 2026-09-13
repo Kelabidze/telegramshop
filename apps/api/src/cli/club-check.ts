@@ -98,12 +98,36 @@ async function main(): Promise<void> {
         const chat = await bot.api.getChat(viaUsername);
         console.log(`  → resolved: id=${chat.id}`);
         if ('title' in chat && chat.title) console.log(`    title: ${chat.title}`);
-        console.log('\n  So the bot CAN see the channel and CLUB_CHANNEL_ID is wrong.');
-        console.log(`  Set CLUB_CHANNEL_ID=${chat.id} — that is this channel's real id.`);
+
+        /**
+         * The comparison, not the mere fact that the username resolved, is what
+         * identifies the cause — and getting this backwards sends an operator to
+         * replace an id that is already correct.
+         *
+         * Telegram resolves a public @username for any bot, whether or not it is
+         * in the chat. A numeric id it resolves only for a chat the bot already
+         * knows. So the username succeeding while the id fails does NOT mean the
+         * id is wrong; if the resolved id equals the configured one, the id is
+         * proven right by Telegram itself and the bot is simply not in the
+         * channel.
+         */
+        if (String(chat.id) === config.clubChannel.id.trim()) {
+          console.log('\n  This is the SAME id as CLUB_CHANNEL_ID, so the id is correct.');
+          console.log('  Telegram resolves a public username for any bot, but a numeric');
+          console.log('  id only for a chat the bot is already in — so the bot is NOT in');
+          console.log(`  the channel. Add it to ${viaUsername} as an ADMINISTRATOR`);
+          console.log('  (channels refuse getChatMember to non-admins), then run this again.');
+          console.log('  Until then getChatMember fails for everyone and no buyer gets the');
+          console.log('  club rate, whatever the id says.');
+        } else {
+          console.log('\n  A DIFFERENT id, so CLUB_CHANNEL_ID names another chat.');
+          console.log(`  Set CLUB_CHANNEL_ID=${chat.id} — that is this channel's real id.`);
+        }
       } catch {
-        console.log('  → that failed too, so the id is not the problem.');
-        console.log('\n  The bot is not in the channel. Add it as an ADMINISTRATOR,');
-        console.log('  then run this again: no id works until it is a member.');
+        console.log('  → that failed too, so the channel is not reachable by link either.');
+        console.log('\n  Check that the link is right and that the channel exists; if it');
+        console.log('  is private, only an invite link works and the id cannot be');
+        console.log('  verified from here.');
       }
     }
 
