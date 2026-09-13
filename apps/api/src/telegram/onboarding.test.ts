@@ -10,7 +10,7 @@ import {
   returningMemberHtml,
 } from './onboarding.ts';
 
-const CHANNEL = 'https://t.me/rabrabrab111';
+const CHANNEL = 'https://t.me/fakemoney95';
 
 describe('club onboarding copy', () => {
   it('puts the channel URL on the word «канал», not as a raw dump', () => {

@@ -69,6 +69,10 @@ const REQUIRED_BUILD_OUTPUTS = [
   // only be diagnosed where the real api.env is loaded, and it must be answerable
   // without creating a payment.
   'apps/api/dist/cli/cashera-check.js',
+  // Read-only club channel probe. Shipped because `clubChannelConfigured: true`
+  // in /health only proves the id is non-empty: whether it names the same chat as
+  // the advertised invite link is answerable only where the real api.env lives.
+  'apps/api/dist/cli/club-check.js',
   'apps/miniapp/dist/index.html',
   'packages/shared/dist/index.js',
 ];

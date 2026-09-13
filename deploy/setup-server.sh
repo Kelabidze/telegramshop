@@ -169,10 +169,12 @@ INIT_DATA_MAX_AGE_SECONDS=86400
 # Club tier: membership in this channel lowers prices by 5%.
 # Set BOTH or NEITHER - the API refuses to start with only one, because half the
 # feature fails silently. The bot must be an ADMINISTRATOR of the channel.
-#   CLUB_CHANNEL_ID=@your_channel
-#   CLUB_CHANNEL_URL=https://t.me/your_channel
-CLUB_CHANNEL_ID=
-CLUB_CHANNEL_URL=
+#
+# The numeric id is preferred over @publicname: a channel can be renamed, and an
+# id cannot. Change these later with the "Set club channel" workflow, then verify
+# with `npm run club:check` from /srv/shop/current/apps/api.
+CLUB_CHANNEL_ID=-1002216220184
+CLUB_CHANNEL_URL=https://t.me/fakemoney95
 CLUB_MEMBERSHIP_TTL_SECONDS=60
 
 # Your Telegram user id(s), comma-separated.

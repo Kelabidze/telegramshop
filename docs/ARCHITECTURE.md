@@ -48,6 +48,7 @@ apps/api/
     cli/seed.ts              демо-каталог, идемпотентный
     cli/seed-banners.ts      только демо-баннеры; запускается при деплое
     cli/webhook.ts           set/delete вебхука Telegram
+    cli/club-check.ts        read-only проверка клубного канала (getChat + права бота)
     plugins/auth.ts          проверка initData → Viewer; RBAC: requireRole/requirePermission
     routes/catalog.ts        GET /api/categories, /api/products, /api/products/:slug
     routes/orders.ts         GET|POST /api/orders, /api/orders/:id/cancel
@@ -798,6 +799,11 @@ placement: чей баннер сверху, в какой рамке и под 
 - `start_param` Telegram для кнопки в чате не нужен: проверка живёт в боте.
 - Выключается пустым `CLUB_CHANNEL_ID`: тогда `getChatMember` не вызывается и все
   платят стандартную цену.
+- **`clubChannelConfigured: true` не значит «настроено верно»** — только «id не
+  пуст». Три сбоя выглядят как работающая фича и лишают скидки всех: id указывает
+  на другой чат, чем ссылка; бот не админ канала; id устарел и `getChat` отвечает
+  «chat not found». Различает их `cli/club-check.ts` (`npm run club:check`), и
+  только там, где загружен настоящий `api.env`.
 
 ---
 
@@ -817,6 +823,7 @@ placement: чей баннер сверху, в какой рамке и под 
 | `PUBLIC_APP_URL`            | публичный origin Mini App; это открывают кнопки бота  |
 | `CLUB_CHANNEL_ID`           | канал для проверки членства; пусто = тариф выключен    |
 | `CLUB_CHANNEL_URL`          | ссылка-приглашение; обязательна вместе с `_ID`         |
+| ↳ прод                      | `-1002216220184` / `https://t.me/fakemoney95`; смена — workflow «Set club channel», проверка — `npm run club:check` (`docs/DEPLOYMENT.md`, 4.1) |
 | `CLUB_MEMBERSHIP_TTL_SECONDS` | срок доверия ответу `getChatMember`, по умолчанию 60 |
 | `PAYMENT_PROVIDER`          | `stars` \| `provider` \| `none`                      |
 | `CORS_ORIGINS`              | пусто → только `*.telegram.org` и localhost           |

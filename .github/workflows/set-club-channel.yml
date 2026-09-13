@@ -1,0 +1,132 @@
+name: Set club channel
+
+# The club channel lives in /srv/shop/shared/api.env, which deploys deliberately
+# never touch: it holds the bot token and every other on-host secret, and a
+# release that could rewrite it would be able to rewrite those too.
+#
+# That leaves changing the channel with no path at all — the value is in no
+# repository, and the deploy user's key exists only as a GitHub secret. This
+# workflow is that path, and nothing more: two variables, upserted in place,
+# followed by a restart and the read-only probe that proves the new channel
+# actually resolves.
+#
+# Manual only. It is not part of a deploy and must never become one.
+on:
+  workflow_dispatch:
+    inputs:
+      channel_id:
+        description: 'CLUB_CHANNEL_ID — @publicname or a numeric -100… id'
+        required: true
+        default: '-1002216220184'
+      channel_url:
+        description: 'CLUB_CHANNEL_URL — public invite link to the SAME channel'
+        required: true
+        default: 'https://t.me/fakemoney95'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      # Validate before touching the server. The API refuses to boot on a
+      # malformed pair (config.ts), so a bad value here would take the shop down
+      # at the restart below rather than fail harmlessly on the runner.
+      - name: Validate the inputs
+        env:
+          CHANNEL_ID: ${{ inputs.channel_id }}
+          CHANNEL_URL: ${{ inputs.channel_url }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$CHANNEL_ID" =~ ^(-100[0-9]{6,}|@[A-Za-z0-9_]{4,})$ ]]; then
+            echo "CLUB_CHANNEL_ID must be @publicname or a numeric -100… id" >&2
+            exit 1
+          fi
+          if ! [[ "$CHANNEL_URL" =~ ^https://t\.me/(\+[A-Za-z0-9_-]+|[A-Za-z0-9_]{4,})$ ]]; then
+            echo "CLUB_CHANNEL_URL must be a https://t.me/… link" >&2
+            exit 1
+          fi
+          echo "id  $CHANNEL_ID"
+          echo "url $CHANNEL_URL"
+
+      - name: Update api.env and verify the channel
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          # Forwarded as environment variables rather than interpolated into the
+          # script: `${{ }}` inside a shell string is command injection, and this
+          # script runs on the production host.
+          envs: CHANNEL_ID,CHANNEL_URL
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+
+            ENV_FILE=/srv/shop/shared/api.env
+            [ -f "$ENV_FILE" ] || { echo "$ENV_FILE not found" >&2; exit 1; }
+
+            # Upsert, never append blindly. api.env is read top to bottom, so a
+            # second CLUB_CHANNEL_ID appended after the first silently wins — the
+            # same trap that once made a rotated Cashera key look unapplied, and
+            # here it would leave membership pointed at the old channel while the
+            # file appears to name the new one.
+            upsert() {
+              local key="$1" value="$2"
+              if grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE"; then
+                # Value goes in through an awk variable, so a URL's slashes need
+                # no escaping and cannot terminate the expression.
+                awk -v key="$key" -v value="$value" '
+                  $0 ~ "^[[:space:]]*(export[[:space:]]+)?" key "=" && !done {
+                    print key "=" value; done = 1; next
+                  }
+                  { print }
+                ' "$ENV_FILE" > "${ENV_FILE}.new"
+              else
+                cp "$ENV_FILE" "${ENV_FILE}.new"
+                printf '%s=%s\n' "$key" "$value" >> "${ENV_FILE}.new"
+              fi
+              # Permissions before content: this file holds the bot token, and a
+              # moment at the default umask is a moment it is world-readable.
+              chmod 600 "${ENV_FILE}.new"
+              mv -f "${ENV_FILE}.new" "$ENV_FILE"
+            }
+
+            # A duplicate that predates this workflow would defeat the upsert
+            # above, which only rewrites the first occurrence.
+            for key in CLUB_CHANNEL_ID CLUB_CHANNEL_URL; do
+              count=$(grep -cE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE" || true)
+              if [ "$count" -gt 1 ]; then
+                echo "$key appears $count times in $ENV_FILE; fix that by hand first" >&2
+                exit 1
+              fi
+            done
+
+            cp -p "$ENV_FILE" "${ENV_FILE}.bak"
+            upsert CLUB_CHANNEL_ID "$CHANNEL_ID"
+            upsert CLUB_CHANNEL_URL "$CHANNEL_URL"
+
+            # Only the two lines this workflow owns. The rest of the file is
+            # secrets and must not reach the log.
+            echo "--- club channel lines now in api.env ---"
+            grep -E '^[[:space:]]*(export[[:space:]]+)?CLUB_CHANNEL_(ID|URL)=' "$ENV_FILE"
+
+            sudo -n systemctl restart shop-api
+
+            for _ in $(seq 1 20); do
+              curl -fsS --max-time 3 http://127.0.0.1:8080/health >/dev/null 2>&1 && break
+              sleep 1
+            done
+            curl -fsS --max-time 5 http://127.0.0.1:8080/health
+            echo
+
+            # The probe that makes this workflow trustworthy: it proves the id
+            # resolves, that it names the same chat as the link, and that the bot
+            # is an administrator — the three ways this can be wrong while
+            # /health still reports clubChannelConfigured: true.
+            cd /srv/shop/current/apps/api
+            npm run club:check
