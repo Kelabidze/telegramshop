@@ -12,31 +12,51 @@ element, so absence has to be the default.
 
 | File               | CSS variable              | Applied to |
 | ------------------ | ------------------------- | ---------- |
-| `tentacle-arc.svg` | `--zone-decor-tentacle`   | `.profile-hero::before`, 140px tall, 10% opacity, clipped by the container |
-| `suction-row.svg`  | `--zone-decor-suction`    | not yet applied — intended as a small marker before `.section-title` |
-| `noise.png`        | `--zone-decor-noise`      | not yet applied — intended as a tiling grain overlay |
+| `tentacle-arc.svg` | `--zone-decor-tentacle`   | `.profile-hero::before` (140px, 0.14) and `.zone-now-card::before` (right-anchored, 0.16); both `contain`, both clipped |
+| `suction-row.svg`  | `--zone-decor-suction`    | not applied — see below |
+| `noise.png`        | `--zone-decor-noise`      | not applied — see below |
 
 ## Wiring one up
 
-Change the variable in `styles.css` from `none` to a `url()`:
+The variable is set from `main.tsx` (`applyDecor`), not in the stylesheet, so the URL
+comes from a Vite import and a rename becomes a build error instead of a silent 404.
 
-```css
---zone-decor-tentacle: url('./assets/decorations/tentacle-arc.svg');
+**Quote the URL.** Vite inlines these SVGs as data URIs, and `tentacle-arc.svg`
+contains literal apostrophes plus a nested `url(%23g)` for its gradient — so
+`url(<uri>)` unquoted is not a parseable CSS value:
+
+```ts
+// right: parses, renders
+root.style.setProperty('--zone-decor-tentacle', `url("${decor.tentacleArc}")`);
+// wrong: setProperty silently keeps the old value, decoration never appears
+root.style.setProperty('--zone-decor-tentacle', `url(${decor.tentacleArc})`);
 ```
 
-Relative to `styles.css`, so Vite rewrites and hashes it. `.profile-hero::before`
-already exists and will start rendering; nothing else changes.
+`setProperty` does not throw or warn on an unparseable value, it just keeps the
+previous one — so this failed completely silently on every device for the whole time
+the decoration was "wired up". `bundle.test.ts` asserts the quotes are there.
 
-## Two open decisions
+**Use `contain`, not `cover`.** The arc is 900×500 and the strips it sits in are around
+390×140. Covering scales it to two and a half times the band's height and shows a slice
+through the middle of a 90px stroke, which reads as a stray diagonal line.
 
-**`suction-row.svg`** has no rule yet. A repeating marker on every section
-heading appears 4-6 times per screen, which is more brand presence than the
-budget allows. Worth trying, worth reverting.
+## Two settled decisions
 
-**`noise.png`** is the only planned raster asset, and it is the only one with a
-performance cost: a fixed full-viewport overlay measurably hurts scrolling on
-some Android WebViews. If it goes in, it must be verified on a real mid-range
-Android device before it stays. 128×128, alpha, 3-5% opacity.
+**`suction-row.svg`** stays unapplied. The intended slot was a marker before every
+`.section-title`, and Home alone has four of them — a brand mark repeated four to six
+times per screen is not a signature, it is a pattern, and it competes with the products
+underneath. The file is not committed.
+
+**`noise`** stays unapplied. The pack ships it as an SVG `feTurbulence` filter rather
+than the tiling PNG this note originally anticipated, which is worse for the purpose: a
+full-viewport filtered layer is recomputed on composite, and it measurably hurts
+scrolling on mid-range Android WebViews. The interface is already dark surfaces with
+hairline borders; grain adds nothing that spacing does not.
+
+Same reasoning retires `backgrounds/grid.svg` and `decorations/glow.svg`. The grid is a
+40px magenta lattice, which is the generic-cyberpunk register the brand avoids, and glow
+is a radial magenta gradient — something CSS does natively in the three places that
+want it, with no request and no extra layer.
 
 ## Brief
 

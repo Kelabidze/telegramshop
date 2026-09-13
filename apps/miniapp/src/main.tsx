@@ -15,11 +15,18 @@ import './styles.css';
  * hash. Writing `url(./assets/decorations/tentacle-arc.svg)` in the stylesheet would
  * work until someone renames the file, at which point it becomes a 404 that nothing
  * catches — the decoration would simply stop appearing.
+ *
+ * **The quotes around the URL are load-bearing.** Vite inlines a small SVG as a data
+ * URI, and this one carries literal apostrophes plus a nested `url(%23g)` for its
+ * gradient — so `url(<uri>)` unquoted is not a valid CSS token. `setProperty` reports
+ * nothing when a value fails to parse, it simply keeps the old one, so the variable
+ * stayed at its `none` default and the tentacle never rendered on any device.
+ * Verified in a headless WebView: unquoted is dropped, quoted resolves.
  */
 function applyDecor(): void {
   document.documentElement.style.setProperty(
     '--zone-decor-tentacle',
-    `url(${decor.tentacleArc})`,
+    `url("${decor.tentacleArc}")`,
   );
 }
 

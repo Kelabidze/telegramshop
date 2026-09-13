@@ -75,6 +75,31 @@ describeBuilt('miniapp bundle', () => {
     );
   });
 
+  it('quotes the decoration URL it assigns at runtime', () => {
+    /*
+     * `--zone-decor-tentacle` is set from JavaScript so the URL carries Vite's content
+     * hash. Vite inlines this SVG as a data URI, and that URI contains literal
+     * apostrophes plus a nested `url(%23g)` for the gradient — so an unquoted
+     * `url(<uri>)` is not a parseable CSS value.
+     *
+     * `setProperty` is silent when a value fails to parse: it keeps the previous one.
+     * So the variable stayed at its `none` default and the tentacle rendered nowhere,
+     * on every device, with no error anywhere. Verified in a headless WebView:
+     * unquoted is dropped, quoted resolves.
+     *
+     * Asserted on the bundle rather than the source because the corruption that
+     * matters is in the emitted string — and it is exactly the kind of one-character
+     * regression that reads as correct in a diff.
+     */
+    const js = readBundle('.js');
+    const assignment = /--zone-decor-tentacle["'`],\s*`url\((\\?["'])/.exec(js);
+    assert.ok(
+      assignment,
+      'the decoration URL must be assigned wrapped in quotes: `url("${...}")`. ' +
+        'Unquoted, the inlined data URI is invalid CSS and setProperty drops it silently.',
+    );
+  });
+
   it('ships no references to files that were not emitted', () => {
     const css = readBundle('.css');
     // `url(...)` targets in CSS, excluding data URIs.

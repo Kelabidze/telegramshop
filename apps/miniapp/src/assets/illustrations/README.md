@@ -1,39 +1,45 @@
 # illustrations
 
-Empty and error state artwork. Not yet drawn — this folder is the mount point.
+Empty and error state artwork, from the approved asset pack.
 
-`EmptyState` (`src/components/ui.tsx`) accepts either `emoji` or `art` and
-renders whichever it gets inside `.empty-art`, a 96px framed tile. Every call
-site still passes an emoji; that is deliberate, so nothing has to be undone when
-the real artwork arrives.
+`EmptyState` (`src/components/ui.tsx`) accepts either `emoji` or `art` and renders
+whichever it gets inside `.empty-art`, a 132px framed tile.
 
 ## Wiring one up
 
 ```tsx
-import emptyCart from '../assets/illustrations/empty-cart.svg';
+import { emptyArt } from '../assets/index.ts';
 
 <EmptyState
-  art={<img className="empty-art__image" src={emptyCart} alt="" />}
+  art={<EmptyArt src={emptyArt.cart} />}
   title="Корзина пуста"
   description="Добавьте товар из каталога, чтобы оформить заказ."
 />
 ```
 
-One line per call site, no other change. `alt=""` because the tile is decorative
-and the title next to it already carries the meaning.
+One line per call site. `alt=""` because the tile is decorative and the title next to it
+already carries the meaning.
 
-## Expected files
+## Files
 
-| File                | Replaces | Call site |
-| ------------------- | -------- | --------- |
-| `empty-cart.svg`    | 🛒 | `screens/CartScreen.tsx` |
-| `empty-orders.svg`  | 📦 | `screens/OrdersScreen.tsx` |
-| `empty-search.svg`  | 🔍 | `components/CatalogBrowser.tsx` |
-| `error.svg`         | ⚠️ | `components/ui.tsx` → `ErrorState` |
-| `locked.svg`        | 🔐 | `screens/ProfileScreen.tsx` (viewer outside Telegram) |
-| `empty-generic.svg` | 🗂 / 👥 | the three admin screens, sharing one file |
+| File                | Call site |
+| ------------------- | --------- |
+| `empty-cart.svg`    | `screens/CartScreen.tsx` |
+| `empty-orders.svg`  | `screens/OrdersScreen.tsx` |
+| `empty-search.svg`  | `components/CatalogBrowser.tsx` — an empty category or search |
+| `error.svg`         | `components/ui.tsx` → `ErrorState`, so every failed query on every screen |
+| `locked.svg`        | `screens/ProfileScreen.tsx`, viewer outside Telegram |
 
-Six files, not eight: the staff screens do not each warrant their own drawing.
+Five files. The three staff screens keep their emoji: they are not a buyer-facing
+surface, and inventing a sixth drawing for them would be brand work spent where nobody
+shopping will ever see it.
+
+## Sizing
+
+`.empty-art__image` pads by 12px and uses `object-fit: contain`. Both matter: the
+drawings are 4:3 in a square tile, so they already lose height to letterboxing, and more
+padding on top of that shrinks the artwork until the octopus detail in each one stops
+being readable — which is the only reason these are illustrations and not glyphs.
 
 ## Brief
 

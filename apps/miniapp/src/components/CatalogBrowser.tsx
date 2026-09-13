@@ -12,6 +12,7 @@ import {
 } from './ui.tsx';
 import { ProductGrid } from './ProductGrid.tsx';
 import { BannerStrip } from './BannerStrip.tsx';
+import { CategoryGlyph } from './CategoryGlyph.tsx';
 import {
   forgetScrollPosition,
   useScrollRestoration,
@@ -213,9 +214,14 @@ function CategoryGrid({
           aria-pressed={selected === category.slug}
           onClick={() => onSelect(category.slug)}
         >
-          {/* Emoji is optional in the schema, so every tile needs a fallback. */}
-          <span className="category-card__icon" aria-hidden="true">
-            {category.emoji || '🗂'}
+          {/*
+            The same brand glyph as Home's picker, not the category emoji. Two grids
+            of the same categories on two screens, one drawn with the pack and one
+            with platform emoji, is the drift that makes an interface look assembled
+            rather than designed.
+          */}
+          <span className="category-card__icon">
+            <CategoryGlyph category={category} size={17} />
           </span>
           <span className="category-card__title">{category.title}</span>
         </button>
