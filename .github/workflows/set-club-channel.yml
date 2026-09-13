@@ -54,6 +54,14 @@ jobs:
 
       - name: Update api.env and verify the channel
         uses: appleboy/ssh-action@v1
+        # `envs:` below only forwards variables that already exist in THIS step's
+        # environment; it does not read the workflow inputs by itself. Without
+        # this block the remote script aborted on `set -u` at the first
+        # expansion — before writing anything, which is the one good thing about
+        # failing there.
+        env:
+          CHANNEL_ID: ${{ inputs.channel_id }}
+          CHANNEL_URL: ${{ inputs.channel_url }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -106,13 +114,23 @@ jobs:
               fi
             done
 
+            # The values being replaced, so reverting is a matter of re-running
+            # this workflow with what it printed. A channel id and an invite link
+            # are public, unlike everything else in this file.
+            echo "--- club channel before ---"
+            grep -E '^[[:space:]]*(export[[:space:]]+)?CLUB_CHANNEL_(ID|URL)=' "$ENV_FILE" \
+              || echo "(neither was set)"
+
+            # Backup for the length of this run only. api.env holds the bot token,
+            # so a second copy of it is not something to leave lying around: the
+            # printed values above are the durable way back.
             cp -p "$ENV_FILE" "${ENV_FILE}.bak"
             upsert CLUB_CHANNEL_ID "$CHANNEL_ID"
             upsert CLUB_CHANNEL_URL "$CHANNEL_URL"
 
             # Only the two lines this workflow owns. The rest of the file is
             # secrets and must not reach the log.
-            echo "--- club channel lines now in api.env ---"
+            echo "--- club channel after ---"
             grep -E '^[[:space:]]*(export[[:space:]]+)?CLUB_CHANNEL_(ID|URL)=' "$ENV_FILE"
 
             sudo -n systemctl restart shop-api
@@ -129,4 +147,18 @@ jobs:
             # is an administrator — the three ways this can be wrong while
             # /health still reports clubChannelConfigured: true.
             cd /srv/shop/current/apps/api
-            npm run club:check
+            # The status is captured rather than allowed to abort the script: the
+            # value is already applied and the service is healthy, so the cleanup
+            # below still has to run. But it is not discarded either — a
+            # misconfigured channel must leave this run red, since a green run
+            # claiming "channel switched" is exactly the false confidence this
+            # probe exists to prevent.
+            probe=0
+            npm run club:check || probe=$?
+
+            # The service is up, so the copy of api.env has done its job. Removed
+            # here rather than in a trap: after an earlier failure it is exactly
+            # what an operator wants to find.
+            rm -f "${ENV_FILE}.bak"
+
+            exit "$probe"
