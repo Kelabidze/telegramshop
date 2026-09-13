@@ -76,9 +76,37 @@ async function main(): Promise<void> {
   } catch (error) {
     const description = error instanceof Error ? error.message : String(error);
     fail(`getChat failed: ${description}`);
-    console.log('\n  Most likely CLUB_CHANNEL_ID is wrong or the bot was never');
-    console.log('  added to the channel. membership.ts treats this as "not a');
-    console.log('  member", so every buyer silently pays the standard price.');
+    console.log('  membership.ts treats this as "not a member", so every buyer');
+    console.log('  silently pays the standard price.');
+
+    /**
+     * A failed id is where a diagnosis has to start, not stop. "Chat not found"
+     * has two causes that need opposite fixes — the id is wrong, or the bot is
+     * not in the channel at all — and they are indistinguishable from this one
+     * answer.
+     *
+     * Resolving the username from CLUB_CHANNEL_URL separates them, because both
+     * halves are supposed to name the same chat. If the username resolves, the
+     * bot can see the channel and the id is simply wrong: the correct one is in
+     * the reply, ready to paste. If it fails the same way, the id was never the
+     * problem and no id will work until the bot is added.
+     */
+    const viaUsername = usernameFromUrl(config.clubChannel.url);
+    if (viaUsername) {
+      console.log(`\n  Trying the same channel by its link instead (${viaUsername})…`);
+      try {
+        const chat = await bot.api.getChat(viaUsername);
+        console.log(`  → resolved: id=${chat.id}`);
+        if ('title' in chat && chat.title) console.log(`    title: ${chat.title}`);
+        console.log('\n  So the bot CAN see the channel and CLUB_CHANNEL_ID is wrong.');
+        console.log(`  Set CLUB_CHANNEL_ID=${chat.id} — that is this channel's real id.`);
+      } catch {
+        console.log('  → that failed too, so the id is not the problem.');
+        console.log('\n  The bot is not in the channel. Add it as an ADMINISTRATOR,');
+        console.log('  then run this again: no id works until it is a member.');
+      }
+    }
+
     console.log(`\n${problems} problem(s) found.`);
     process.exitCode = 1;
     return;
