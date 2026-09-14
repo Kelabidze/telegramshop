@@ -47,39 +47,33 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
      * degrades the USDT preview rather than the whole storefront — and USDT
      * checkout refuses separately, so nothing is quoted from a rate that was not
      * actually obtained.
+     *
+     * The rate is obtained but NOT exposed to the client — Cashera uses its own
+     * rate when converting RUB to crypto, so showing Rapira's would mislead the
+     * buyer. The rate stays internal for native on-chain crypto when that is enabled.
      */
-    let usdtRate: PaymentOptions['usdtRate'] = null;
     let usdtRubMinorPerUnit = config.rates.usdtRubMinorPerUnit;
+    let rateObtained = !config.rapira.enabled;
 
     if (config.rapira.enabled) {
       try {
         const { getUsdtRubRate } = await import('../payments/rapira-rates.js');
         const quote = await getUsdtRubRate();
         usdtRubMinorPerUnit = quote.rateRubMinorPerUnit;
-        usdtRate = {
-          source: quote.source,
-          side: quote.side,
-          display: (quote.rateRubMinorPerUnit / 100).toFixed(2),
-        };
+        rateObtained = true;
       } catch {
-        // Leave `usdtRate` null: the client shows no rate and no USDT amount
-        // rather than one derived from a stale fallback.
-        usdtRate = null;
+        // Degraded: native crypto would refuse, but Stars and card keep working.
+        rateObtained = false;
       }
-    } else {
-      usdtRate = {
-        source: 'CONFIG',
-        side: null,
-        display: (usdtRubMinorPerUnit / 100).toFixed(2),
-      };
     }
 
     const options: PaymentOptions = {
       rates: { ...config.rates, usdtRubMinorPerUnit },
-      // A rail with no usable rate cannot quote a price, so it is not offered.
-      usdtAvailable: config.crypto.enabled && usdtRate !== null,
+      // Native on-chain crypto only. A rail with no rate cannot quote a price.
+      usdtAvailable: config.crypto.enabled && rateObtained,
       cardAvailable: config.cashera.enabled,
-      usdtRate,
+      // Not exposed: Cashera converts at its own rate, so showing Rapira misleads.
+      usdtRate: null,
     };
     return options;
   });

@@ -338,16 +338,14 @@ export function CartScreen({
             onChange={setPayWith}
           />
           {/*
-            Named where the USDT figure comes from. A crypto amount that moves
-            between visits looks arbitrary unless the rate behind it is stated —
-            and the exact amount is fixed by the server when the payment opens,
-            not by this preview.
+            Cashera converts RUB to crypto at its own rate, which is not exposed
+            before payment creation. Showing a different rate here would mislead
+            the buyer — the final amount is fixed by the gateway when the payment
+            opens.
           */}
-          {effectivePayWith === 'USDT' && usdtRate ? (
+          {effectivePayWith === 'RUB' ? (
             <p className="hint" style={{ marginTop: 10 }}>
-              Курс {usdtRate.display} ₽ за USDT
-              {usdtRate.source === 'RAPIRA' ? ' · Rapira' : ''}. Точная сумма
-              фиксируется при создании платежа.
+              Точная сумма в криптовалюте фиксируется при создании платежа.
             </p>
           ) : null}
         </div>
