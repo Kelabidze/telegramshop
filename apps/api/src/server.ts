@@ -19,6 +19,7 @@ import { cryptoPaymentRoutes } from './routes/crypto-payments.js';
 import { casheraRoutes, casheraWebhookRoutes } from './routes/cashera.js';
 import { botRoutes } from './routes/bot.js';
 import { userRoutes } from './routes/users.js';
+import { zoneNowRoutes } from './routes/zone-now.js';
 import { isDerivationAvailable } from './crypto/addresses.js';
 import { getMonitorState, startMonitor, stopMonitor } from './crypto/monitor.js';
 import { getRpcClient } from './crypto/rpc.js';
@@ -300,6 +301,7 @@ export async function buildServer() {
   await app.register(cryptoPaymentRoutes, { prefix: '/api' });
   await app.register(casheraRoutes, { prefix: '/api' });
   await app.register(userRoutes, { prefix: '/api' });
+  await app.register(zoneNowRoutes, { prefix: '/api' });
   // Management endpoints. Same `/api` prefix as the public ones: they are told
   // apart by their pre-handlers, not by the URL, so no path can be mistaken for
   // public just because it lacks an `/admin` segment.

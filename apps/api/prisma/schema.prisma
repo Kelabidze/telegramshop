@@ -336,6 +336,28 @@ model Banner {
   @@index([section, isActive, sortOrder])
 }
 
+/// The "Сейчас в ZONE" editorial card shown on the home screen.
+///
+/// A single row: the storefront reads the active card, and admin UI enforces
+/// that only one can be active at a time. Multiple rows exist so content can be
+/// prepared in advance and published by toggling `isActive`.
+model ZoneNowCard {
+  id          String  @id @default(cuid())
+  title       String
+  text        String
+  imageUrl    String?
+  actionLabel String?
+  /// Where the action button leads. Null = no button shown.
+  actionUrl   String?
+  isActive    Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
 /// Idempotency guard for Telegram webhook updates.
 /// Telegram retries updates; processing one twice would deliver goods twice.
 model ProcessedUpdate {

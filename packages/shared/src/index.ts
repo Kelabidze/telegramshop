@@ -5,6 +5,7 @@ export * from './crypto-payment.js';
 export * from './cashera.js';
 export * from './catalog.js';
 export * from './banner.js';
+export * from './zone-now.js';
 export * from './media.js';
 export * from './order.js';
 export * from './telegram.js';

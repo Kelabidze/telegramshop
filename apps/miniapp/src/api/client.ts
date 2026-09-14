@@ -27,6 +27,7 @@ import type {
   ShopUser,
   StaffOrder,
   Viewer,
+  ZoneNowCard,
 } from '@shop/shared';
 import { CLUB_RECHECK_PARAM } from '@shop/shared';
 import { getInitData } from '../telegram/webapp.ts';
@@ -221,6 +222,9 @@ export const api = {
     request<{ banners: Banner[] }>(
       `/api/banners?section=${encodeURIComponent(section)}`,
     ).then((r) => r.banners),
+
+  /** The active Zone Now card, or null when none is published. */
+  getZoneNowCard: () => request<ZoneNowCard | null>('/api/zone-now'),
 
   listCountries: () =>
     request<{ countries: Country[] }>('/api/countries').then((r) => r.countries),

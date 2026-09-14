@@ -31,6 +31,7 @@ export const API_ERROR_CODES = [
    */
   'RATE_UNAVAILABLE',
   'RATE_LIMITED',
+  'ZONE_NOW_CARD_NOT_FOUND',
   'INTERNAL_ERROR',
 ] as const;
 export const apiErrorCodeSchema = z.enum(API_ERROR_CODES);
@@ -68,5 +69,6 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   // 503: the rail is temporarily unusable and retrying later is the right move.
   RATE_UNAVAILABLE: 503,
   RATE_LIMITED: 429,
+  ZONE_NOW_CARD_NOT_FOUND: 404,
   INTERNAL_ERROR: 500,
 };

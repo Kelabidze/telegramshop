@@ -1,4 +1,6 @@
-import type { ZoneNowContent } from './types.ts';
+import { useQuery } from '@tanstack/react-query';
+import type { ZoneNowCard } from '@shop/shared';
+import { api } from '../../api/client.ts';
 import { haptic, openExternal } from '../../telegram/webapp.ts';
 
 /**
@@ -7,12 +9,15 @@ import { haptic, openExternal } from '../../telegram/webapp.ts';
  * Editorial card showing what's currently happening: new products, updates,
  * temporary promotions, or other short messages from the shop.
  *
- * One horizontal card, not a banner and not a carousel. The content lives in
- * the frontend for now — when server-driven editorial is needed, this becomes
- * an API call.
+ * One horizontal card, not a banner and not a carousel. The content is now
+ * server-driven and editable through the admin panel.
  */
 export function ZoneNowSection() {
-  const content = getZoneNowContent();
+  const { data: content } = useQuery({
+    queryKey: ['zone-now'],
+    queryFn: () => api.getZoneNowCard(),
+    staleTime: 5 * 60 * 1000,
+  });
 
   if (!content) return null;
 
@@ -49,21 +54,4 @@ export function ZoneNowSection() {
       </div>
     </section>
   );
-}
-
-/**
- * Zone Now content configuration.
- *
- * Lives in the frontend for now — a single featured message per deploy. When
- * server-driven editorial is needed, this becomes an API response and the
- * section component gets `content` as a prop instead of calling this function.
- */
-function getZoneNowContent(): ZoneNowContent | null {
-  return {
-    title: 'Три способа оплаты',
-    // No claim about fees: Telegram takes a cut of every Stars purchase, so
-    // "без комиссий" was simply false. What is worth saying is that the price is
-    // the same on every rail — the buyer picks by convenience, not by cost.
-    text: 'Telegram Stars, карта или USDT — цена одна, выбирайте что удобнее.',
-  };
 }
