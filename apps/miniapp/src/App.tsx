@@ -18,6 +18,7 @@ import { AdminCatalogScreen } from './screens/admin/AdminCatalogScreen.tsx';
 import { AdminAbuseScreen } from './screens/admin/AdminAbuseScreen.tsx';
 import { AdminUsersScreen } from './screens/admin/AdminUsersScreen.tsx';
 import { AdminFinanceScreen } from './screens/admin/AdminFinanceScreen.tsx';
+import { AdminZoneNowScreen } from './screens/admin/AdminZoneNowScreen.tsx';
 
 /**
  * Navigation.

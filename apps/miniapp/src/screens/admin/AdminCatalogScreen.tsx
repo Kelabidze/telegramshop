@@ -93,6 +93,24 @@ export function AdminCatalogScreen() {
       <h1 className="title">Каталог</h1>
       <p className="subtitle">Категории и товары, включая скрытые</p>
 
+      <h2 className="section-title">Zone Now</h2>
+      <p className="hint" style={{ marginBottom: 12 }}>
+        Управление карточкой «Сейчас в ZONE» на главном экране.
+      </p>
+      <button
+        type="button"
+        className="button"
+        onClick={() => {
+          haptic('tap');
+          // Navigate by changing the view in App.tsx or opening a modal
+          // For now, show an alert directing to the separate management
+          alert('Перейдите в раздел Zone Now для редактирования карточки.');
+        }}
+        style={{ marginBottom: 24 }}
+      >
+        Управление Zone Now →
+      </button>
+
       <h2 className="section-title">Категории</h2>
       <div className="stack">
         {categories.map((category) => (

@@ -28,6 +28,7 @@ import type {
   StaffOrder,
   Viewer,
   ZoneNowCard,
+  ZoneNowCardInput,
 } from '@shop/shared';
 import { CLUB_RECHECK_PARAM } from '@shop/shared';
 import { getInitData } from '../telegram/webapp.ts';
@@ -449,6 +450,30 @@ export const api = {
     request<{ banner: Banner }>(`/api/banners/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }).then((r) => r.banner),
+
+  // ---- Zone Now cards (admin) ----------------------------------------------
+
+  adminListZoneNowCards: () =>
+    request<ZoneNowCard[]>('/api/admin/zone-now'),
+
+  adminCreateZoneNowCard: (input: ZoneNowCardInput) =>
+    request<ZoneNowCard>('/api/admin/zone-now', {
+      method: 'POST',
+      body: input,
+    }),
+
+  adminUpdateZoneNowCard: (id: string, input: Partial<ZoneNowCardInput>) =>
+    request<ZoneNowCard>(`/api/admin/zone-now/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: input,
+    }),
+
+  adminDeleteZoneNowCard: (id: string) =>
+    request<void>(`/api/admin/zone-now/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  // ---- Categories (admin) --------------------------------------------------
 
   createCategory: (input: CategoryInput) =>
     request<{ category: Category }>('/api/categories', {

@@ -56,6 +56,7 @@ const REQUIRED_BUILD_OUTPUTS = [
   'apps/api/dist/cli/seed.js',
   'apps/api/dist/cli/seed-banners.js',
   'apps/api/dist/cli/seed-abuse.js',
+  'apps/api/dist/cli/zone-now-seed.js',
   'apps/api/dist/cli/webhook.js',
   'apps/api/dist/cli/crypto-check.js',
   // Shipped so an operator can derive the xpub from an existing mnemonic on the

@@ -23,6 +23,10 @@
 
 ## [Unreleased]
 
+### Добавлено
+
+- **Zone Now карточка «Сейчас в ZONE» с полным admin CRUD и seed скриптом.** Новая таблица `ZoneNowCard`, эндпоинты `GET /api/zone-now` (публичный), `GET/POST/PATCH/DELETE /api/admin/zone-now/:id` (admin), админ-экран `AdminZoneNowScreen.tsx` с формой создания/редактирования, и production-ready seed `npm run db:seed:zone-now`, создающий дефолтную карточку при первом запуске. Карточка рендерится на Home через существующий `ZoneNowSection`.
+
 ### Исправлено
 
 - **Брендовое щупальце не рисовалось ни на одном устройстве — и не рисовалось

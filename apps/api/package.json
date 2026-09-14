@@ -16,6 +16,7 @@
     "db:seed": "tsx --env-file-if-exists=.env src/cli/seed.ts",
     "db:seed:banners": "tsx --env-file-if-exists=.env src/cli/seed-banners.ts",
     "db:seed:abuse": "tsx --env-file-if-exists=.env src/cli/seed-abuse.ts",
+    "db:seed:zone-now": "node --env-file-if-exists=.env --env-file-if-exists=/srv/shop/shared/api.env dist/cli/zone-now-seed.js",
     "crypto:check": "tsx --env-file-if-exists=.env src/cli/crypto-check.ts",
     "cashera:check": "node --env-file-if-exists=.env --env-file-if-exists=/srv/shop/shared/api.env dist/cli/cashera-check.js",
     "club:check": "node --env-file-if-exists=.env --env-file-if-exists=/srv/shop/shared/api.env dist/cli/club-check.js",
