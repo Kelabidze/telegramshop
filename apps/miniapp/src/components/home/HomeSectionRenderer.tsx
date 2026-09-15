@@ -49,7 +49,7 @@ export function HomeSectionRenderer({
       );
 
     case 'zone_now':
-      return <ZoneNowSection />;
+      return <ZoneNowSection onOpenCategory={onOpenCategory} />;
 
     case 'best_price':
       return (

@@ -19,8 +19,14 @@ async function main() {
       title: 'Добро пожаловать в ZONE',
       text: 'Новые товары каждую неделю. Следите за обновлениями!',
       imageUrl: null,
-      actionLabel: 'Перейти в каталог',
-      actionUrl: '/catalog',
+      /*
+       * No button. `actionUrl` accepts only `https://…` or `category:slug`, and a
+       * seed cannot know which categories this shop has — a guessed slug would
+       * render a button that filters the catalog down to nothing. Staff add the
+       * link in the admin panel, where the categories are a dropdown.
+       */
+      actionLabel: null,
+      actionUrl: null,
       isActive: true,
       sortOrder: 0,
     },

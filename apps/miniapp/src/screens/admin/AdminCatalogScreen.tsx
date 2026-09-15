@@ -11,6 +11,7 @@ import { ApiError, api } from '../../api/client.ts';
 import { EmptyState, ErrorState, Spinner } from '../../components/ui.tsx';
 import { haptic, showConfirm } from '../../telegram/webapp.ts';
 import { BannerManager } from './BannerManager.tsx';
+import { ZoneNowManager } from './ZoneNowManager.tsx';
 import { Field, ProductForm } from './forms.tsx';
 
 const FULFILLMENT_LABEL: Record<FulfillmentKind, string> = {
@@ -93,24 +94,6 @@ export function AdminCatalogScreen() {
       <h1 className="title">Каталог</h1>
       <p className="subtitle">Категории и товары, включая скрытые</p>
 
-      <h2 className="section-title">Zone Now</h2>
-      <p className="hint" style={{ marginBottom: 12 }}>
-        Управление карточкой «Сейчас в ZONE» на главном экране.
-      </p>
-      <button
-        type="button"
-        className="button"
-        onClick={() => {
-          haptic('tap');
-          // Navigate by changing the view in App.tsx or opening a modal
-          // For now, show an alert directing to the separate management
-          alert('Перейдите в раздел Zone Now для редактирования карточки.');
-        }}
-        style={{ marginBottom: 24 }}
-      >
-        Управление Zone Now →
-      </button>
-
       <h2 className="section-title">Категории</h2>
       <div className="stack">
         {categories.map((category) => (
@@ -156,6 +139,13 @@ export function AdminCatalogScreen() {
       ) : null}
 
       <BannerManager section="SHOP" categories={categories} />
+
+      {/*
+        Editorial copy for the home screen. Lives beside the banners because both
+        are storefront presentation rather than inventory, and both belong to the
+        SHOP section — «Абуз» has its own tab and no Zone Now card of its own.
+      */}
+      <ZoneNowManager categories={categories} />
 
       <h2 className="section-title">Товары</h2>
       {products.length === 0 ? (
